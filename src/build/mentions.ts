@@ -21,6 +21,15 @@ const WORD = /[\p{L}\p{N}]+/gu;
 /** A shorter name is a common word more often than a name */
 const SHORTEST = 3;
 
+/**
+ * A name and a text as they are compared: in lower case, with letters in one
+ * form (a name of a file may be stored with its letters taken apart), and
+ * with one space wherever there is room between words.
+ */
+function fold(text: string): string {
+  return text.normalize("NFC").toLowerCase().replace(/[^\S\n]+/g, " ");
+}
+
 function nameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 }
@@ -47,22 +56,28 @@ export interface MentionFinder {
  * endings to a word without a space, as Korean does, it may go on.
  */
 export function mentionFinder(keptOut: readonly string[]): MentionFinder {
-  /** By the first word of a name: the names that start with it, and where that word starts in them */
-  const byFirstWord = new Map<string, { path: string; name: string; lead: number }[]>();
+  /**
+   * By the first word of a name: the names that start with it. Names of the
+   * same length with their first word at the same place, as a year of daily
+   * notes, are found with one lookup, not with one comparison each.
+   */
+  const byFirstWord = new Map<string, { shapes: { lead: number; length: number }[]; paths: Map<string, string[]> }>();
   for (const path of keptOut) {
-    const name = nameOf(path).toLowerCase();
+    const name = fold(nameOf(path));
     WORD.lastIndex = 0;
     const first = WORD.exec(name);
     if (name.length < SHORTEST || first === null) {
       continue;
     }
-    const list = byFirstWord.get(first[0]);
-    const entry = { path, name, lead: first.index };
-    if (list === undefined) {
-      byFirstWord.set(first[0], [entry]);
-    } else {
-      list.push(entry);
+    let entry = byFirstWord.get(first[0]);
+    if (entry === undefined) {
+      entry = { shapes: [], paths: new Map() };
+      byFirstWord.set(first[0], entry);
     }
+    if (!entry.shapes.some((shape) => shape.lead === first.index && shape.length === name.length)) {
+      entry.shapes.push({ lead: first.index, length: name.length });
+    }
+    entry.paths.set(name, [...(entry.paths.get(name) ?? []), path]);
   }
   /** The lengths the first words of the names have: a word of the text is looked up with its starts of these lengths */
   const lengths = [...new Set([...byFirstWord.keys()].map((word) => word.length))].sort((a, b) => a - b);
@@ -73,7 +88,7 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
       if (byFirstWord.size === 0) {
         return;
       }
-      const text = pageText.toLowerCase();
+      const text = fold(pageText);
       // A pattern of its own: this may run while another page is looked through
       const words = new RegExp(WORD.source, WORD.flags);
       for (let word = words.exec(text); word !== null; word = words.exec(text)) {
@@ -81,19 +96,26 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
           if (length > word[0].length) {
             break;
           }
-          for (const candidate of byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length)) ?? []) {
-            const start = word.index - candidate.lead;
-            const after = text.charAt(start + candidate.name.length);
-            const goesOn = LETTER.test(after) && LATIN.test(candidate.name.charAt(candidate.name.length - 1));
-            if (goesOn || !text.startsWith(candidate.name, start)) {
+          const entry = byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length));
+          for (const shape of entry?.shapes ?? []) {
+            const start = word.index - shape.lead;
+            const name = start < 0 ? "" : text.slice(start, start + shape.length);
+            const paths = entry?.paths.get(name);
+            if (paths === undefined) {
               continue;
             }
-            let pagesOf = shown.get(candidate.path);
-            if (pagesOf === undefined) {
-              pagesOf = new Set();
-              shown.set(candidate.path, pagesOf);
+            const goesOn = LETTER.test(text.charAt(start + shape.length)) && LATIN.test(name.charAt(name.length - 1));
+            if (goesOn) {
+              continue;
             }
-            pagesOf.add(pagePath);
+            for (const path of paths) {
+              let pagesOf = shown.get(path);
+              if (pagesOf === undefined) {
+                pagesOf = new Set();
+                shown.set(path, pagesOf);
+              }
+              pagesOf.add(pagePath);
+            }
           }
         }
       }

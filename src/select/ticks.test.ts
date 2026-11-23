@@ -89,6 +89,21 @@ describe("renameTicks", () => {
   });
 });
 
+describe("renameTicks onto a path that was decided before", () => {
+  it("lets what moves there decide, so that a left-out note is not ticked by a tick of a note that is gone", () => {
+    // Notes/old.md was ticked on its own and then deleted; a left-out note is moved onto its path
+    const ticks: Ticks = { on: ["Notes", "Notes/old.md"], off: ["Notes/diary.md"] };
+    const renamed = renameTicks(ticks, "Notes/diary.md", "Notes/old.md");
+    assert.deepEqual(renamed, { on: ["Notes"], off: ["Notes/old.md"] });
+    assert.equal(ticker(renamed)("Notes/old.md"), false);
+  });
+
+  it("does the same for a folder", () => {
+    const ticks: Ticks = { on: ["", "Old/keep.md"], off: ["Private"] };
+    assert.deepEqual(renameTicks(ticks, "Private", "Old"), { on: [""], off: ["Old"] });
+  });
+});
+
 describe("missingTicks", () => {
   it("names the listed paths that are not in the vault", () => {
     const ticks: Ticks = { on: ["", "Gone"], off: ["Notes/Private", "Notes/old.md"] };

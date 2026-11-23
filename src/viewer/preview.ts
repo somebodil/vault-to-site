@@ -64,10 +64,21 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     mine.addEventListener("mouseleave", () => {
       leaving = window.setTimeout(close, LINGER);
     });
-    // A link inside the preview is followed as any other: the preview has done its work
     mine.addEventListener("click", (event) => {
-      if (event.target instanceof Element && event.target.closest("a[href^='#/']") !== null) {
+      const anchor = event.target instanceof Element ? event.target.closest("a[href^='#']") : null;
+      const href = anchor?.getAttribute("href") ?? "";
+      if (anchor === null) {
+        return;
+      }
+      if (href.startsWith("#/")) {
+        // A link to a note is followed as any other: the preview has done its work
         close();
+        return;
+      }
+      // A link inside the page, as the one from a footnote: it stays inside the preview, and the address is left alone
+      event.preventDefault();
+      if (href.length > 1) {
+        view.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: "center" });
       }
     });
   };
@@ -75,7 +86,12 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
   root.addEventListener("mouseover", (event) => {
     const link = event.target instanceof Element ? event.target.closest("a[href^='#/']") : null;
     const href = link?.getAttribute("href") ?? "";
-    if (link === null || href === wanted) {
+    if (link === null) {
+      return;
+    }
+    if (href === wanted) {
+      // Back on the link whose note is shown or asked for: it stays
+      window.clearTimeout(leaving);
       return;
     }
     const [, id = "", heading = ""] = href.split("/");
@@ -96,8 +112,16 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     }, REST);
   });
   root.addEventListener("mouseout", (event) => {
-    if (event.target instanceof Element && event.target.closest("a[href^='#/']") !== null) {
-      window.clearTimeout(waiting);
+    const link = event.target instanceof Element ? event.target.closest("a[href^='#/']") : null;
+    // From one part of a link to another part of it, the pointer has not left the link
+    if (link === null || (event.relatedTarget instanceof Node && link.contains(event.relatedTarget))) {
+      return;
+    }
+    window.clearTimeout(waiting);
+    if (popover === null) {
+      // Left before the note was shown: nothing is asked for any more, and coming back starts the wait again
+      wanted = "";
+    } else {
       leaving = window.setTimeout(close, LINGER);
     }
   });

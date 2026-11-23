@@ -5,7 +5,7 @@ import { titleOf } from "./note.ts";
 
 export interface SearchHost {
   index: SiteIndex;
-  /** The texts of the notes, once they are loaded. Starts the loading when asked the first time. */
+  /** The texts of the notes, once they are loaded. Starts the loading when asked the first time: a search by name does not need them. */
   texts(): { ready: Haystack[]; loading: Promise<void> | null };
   /** Opens a note, and shows `find` in it when it is given */
   go(id: string, find: string): void;
@@ -56,6 +56,7 @@ export function createSearch(host: SearchHost): Search {
 
     let rows: { el: HTMLElement; go: () => void }[] = [];
     let selected = 0;
+    let isWaitingForTexts = false;
     const select = (at: number, scroll: boolean): void => {
       rows[selected]?.el.classList.remove("is-selected");
       selected = Math.max(0, Math.min(at, rows.length - 1));
@@ -94,7 +95,16 @@ export function createSearch(host: SearchHost): Search {
         row(entry.title, folderOf(entry.path), () => host.go(entry.id, ""));
       }
       if (typed.length >= 2) {
-        const { ready } = host.texts();
+        const { ready, loading } = host.texts();
+        if (!isWaitingForTexts) {
+          // The texts arrive after they are asked for: the search is done again when they are there
+          isWaitingForTexts = true;
+          void loading?.then(() => {
+            if (modal === mine && input.value.trim().length >= 2) {
+              draw();
+            }
+          });
+        }
         let shown = 0;
         for (const hay of ready) {
           if (shown >= MOST_LINES) {
@@ -159,12 +169,6 @@ export function createSearch(host: SearchHost): Search {
     input.value = query;
     draw();
     input.focus();
-    // The texts arrive after the dialog is open: the search is done again when they are there
-    void host.texts().loading?.then(() => {
-      if (modal === mine && input.value.trim().length >= 2) {
-        draw();
-      }
-    });
   };
 
   return { open, close };

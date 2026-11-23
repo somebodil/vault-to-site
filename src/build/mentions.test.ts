@@ -46,6 +46,26 @@ describe("findMentions", () => {
   });
 });
 
+describe("names written in other ways", () => {
+  it("finds a name whose letters are stored as their parts", () => {
+    const stored = "Private/비밀계획.md".normalize("NFD");
+    assert.deepEqual(findMentions([{ path: "a.md", text: "오늘 비밀계획 회의" }], [stored]), [{ path: stored, shownIn: ["a.md"] }]);
+  });
+
+  it("finds a name with two spaces or a space that does not break", () => {
+    assert.deepEqual(findMentions([{ path: "a.md", text: "the Hidden Plan" }], ["Hidden  Plan.md", "Hidden\u00a0Plan.md"]), [
+      { path: "Hidden  Plan.md", shownIn: ["a.md"] },
+      { path: "Hidden\u00a0Plan.md", shownIn: ["a.md"] },
+    ]);
+  });
+
+  it("finds one of many names that start with the same word, as the notes of the days of a year", () => {
+    const days = Array.from({ length: 365 }, (_, i) => `Daily/2024-${String(1 + Math.floor(i / 31)).padStart(2, "0")}-${String(1 + (i % 31)).padStart(2, "0")}.md`);
+    const found = findMentions([{ path: "a.md", text: "in 2024 and 2023, see 2024-03-07 and 2024-13-01." }], days);
+    assert.deepEqual(found, [{ path: "Daily/2024-03-07.md", shownIn: ["a.md"] }]);
+  });
+});
+
 describe("mentionFinder", () => {
   it("finds the same, page by page", () => {
     const finder = mentionFinder(["Private/Hidden Plan.md", "Money/Budget 2026.md"]);

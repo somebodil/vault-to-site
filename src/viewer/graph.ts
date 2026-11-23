@@ -143,17 +143,26 @@ export function graphView(host: GraphHost): GraphView {
     }
   };
 
+  /** Takes steps for as long as `millis` allows, at least one. Returns false when no more are needed. */
+  const stepFor = (millis: number): boolean => {
+    const until = performance.now() + millis;
+    do {
+      const moved = step(graph);
+      stepsLeft--;
+      if (!(moved >= SETTLED)) {
+        // Settled, or not a number: either way there is nothing to gain from more steps
+        stepsLeft = 0;
+      }
+    } while (stepsLeft > 0 && performance.now() < until);
+    return stepsLeft > 0;
+  };
+
   const run = (): void => {
     window.cancelAnimationFrame(frame);
     const tick = (): void => {
       if (stepsLeft > 0 && container.isConnected) {
-        let moved = 0;
-        for (let i = 0; i < 3 && stepsLeft > 0; i++, stepsLeft--) {
-          moved = step(graph);
-        }
-        if (moved < SETTLED) {
-          stepsLeft = 0;
-        }
+        // A part of the time between two pictures: the page stays quick to answer, however many notes there are
+        stepFor(10);
         if (!isMoved) {
           fit();
         }
@@ -197,6 +206,10 @@ export function graphView(host: GraphHost): GraphView {
   let pressed: { x: number; y: number; travelled: number } | null = null;
   let pinch = 0;
   canvas.addEventListener("pointerdown", (event) => {
+    // Only the main button of a mouse moves the picture; a finger or a pen always does
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     pressed = pointers.size === 1 ? { x: event.clientX, y: event.clientY, travelled: 0 } : null;
@@ -248,6 +261,8 @@ export function graphView(host: GraphHost): GraphView {
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
+  // The end of a press can be taken by something else, as by a menu: then the press is over all the same
+  canvas.addEventListener("lostpointercapture", release);
   canvas.addEventListener("pointerleave", () => {
     if (hovered !== -1 && pointers.size === 0) {
       hovered = -1;
@@ -283,14 +298,11 @@ export function graphView(host: GraphHost): GraphView {
       hovered = -1;
       isMoved = false;
       readColors();
-      // A few notes are placed at once. Many are placed while they are shown, so that the page does not stand still.
-      const atOnce = graph.nodes.length <= 300 ? 250 : 20;
-      for (let i = 0; i < atOnce; i++) {
-        if (step(graph) < SETTLED) {
-          break;
-        }
+      // Placed for a moment before the first picture, and from then on while it is shown, so that the page does not stand still
+      stepsLeft = graph.nodes.length === 0 ? 0 : 400;
+      if (stepsLeft > 0) {
+        stepFor(graph.nodes.length <= 60 ? 30 : 12);
       }
-      stepsLeft = graph.nodes.length <= 300 ? 0 : 400;
       fit();
       draw();
       run();
@@ -302,6 +314,7 @@ export function graphView(host: GraphHost): GraphView {
     stop() {
       stepsLeft = 0;
       window.cancelAnimationFrame(frame);
+      resized.disconnect();
     },
   };
 }

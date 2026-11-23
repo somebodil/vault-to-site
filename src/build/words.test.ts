@@ -7,7 +7,7 @@ describe("shownWords", () => {
     assert.equal(shownWords("See [[10_Private/Secret|the plan]] now"), "See the plan now");
     assert.equal(shownWords("[the plan](10_Private/Secret.md)"), "the plan");
     assert.equal(shownWords("[the plan](<10_Private/Secret plan.md>)"), "the plan");
-    assert.equal(shownWords('[the plan](obsidian://open?vault=V&file=10_Private%2FSecret "title")'), "the plan");
+    assert.equal(shownWords('[the plan](10_Private/Secret.md "title")'), "the plan");
     assert.equal(shownWords("[a (b)](Folder/Note_(1).md) end"), "a (b) end");
   });
 
@@ -19,8 +19,47 @@ describe("shownWords", () => {
     assert.equal(shownWords("[[10_Private/Secret|]]"), "Secret");
   });
 
+  it("reads the forms of a link that are written less often", () => {
+    const cases: [written: string, shown: string][] = [
+      ["[[Private/Secret|a [b] c]]", "a [b] c"],
+      ["[[Private/Secret\\|in a table]]", "in a table"],
+      ["[x](Private/Secret.md 'hint')", "x"],
+      ["[x](Private/Secret.md (hint))", "x"],
+      ["[x]( Private/Secret.md )", "x"],
+      ["[a \\] b](Private/Secret.md)", "a \\] b"],
+      ["[![i](a.png)](Private/Secret.md)", "i"],
+      ["[x][ref] and ![y][other]", "x and y"],
+      ['<a href="Private/Secret.md">x</a>', "x"],
+      ["<Private/Secret.md>", ""],
+    ];
+    for (const [written, shown] of cases) {
+      assert.equal(shownWords(written), shown, written);
+    }
+  });
+
+  it("takes out an address that opens Obsidian or a file of the device, wherever it stands", () => {
+    assert.equal(shownWords("see obsidian://open?vault=Work&file=Private%2FSecret now"), "see  now");
+    assert.equal(shownWords("[open](obsidian://open?vault=Work&file=Private%2FSecret)"), "open");
+    assert.equal(shownWords("at file:///Users/me/Vault/Private/x.png."), "at ");
+    assert.equal(shownWords("https://example.com/a stays"), "https://example.com/a stays");
+  });
+
+  it("leaves nothing of a path behind for any of these", () => {
+    for (const written of [
+      "[[Private/Secret|a [b] c]]",
+      "[x](Private/Secret.md 'hint')",
+      "[![i](a.png)](Private/Secret.md)",
+      '<a href="Private/Secret.md">x</a>',
+      "obsidian://open?file=Private%2FSecret",
+      "![[Private/Secret#Part|shown]]",
+    ]) {
+      assert.doesNotMatch(shownWords(written), /Private|Secret\.md|%2F/, written);
+    }
+  });
+
   it("leaves text without links as it is", () => {
     assert.equal(shownWords("a [b] c (d) [[ e"), "a [b] c (d) [[ e");
+    assert.equal(shownWords("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");
     assert.equal(shownWords(""), "");
   });
 });

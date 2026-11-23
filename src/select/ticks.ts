@@ -71,9 +71,12 @@ export function setTick(ticks: Ticks, path: string, value: boolean): Ticks {
  * site after it was renamed: its path would no longer be in the list.
  */
 export function renameTicks(ticks: Ticks, from: string, to: string): Ticks {
-  const moved = (path: string): string => (path === from ? to : path.startsWith(from + "/") ? to + path.slice(from.length) : path);
-  const unique = (paths: string[]): string[] => [...new Set(paths.map(moved))].sort();
-  return { on: unique(ticks.on), off: unique(ticks.off) };
+  const isMoved = (path: string): boolean => isAtOrUnder(path, from) && from !== "";
+  const moved = (path: string): string => (path === from ? to : to + path.slice(from.length));
+  // What was decided for the new path before belongs to something that is not there any more: what moves there decides
+  const isStale = (path: string): boolean => !isMoved(path) && to !== "" && isAtOrUnder(path, to);
+  const follow = (paths: string[]): string[] => [...new Set(paths.filter((path) => !isStale(path)).map((path) => (isMoved(path) ? moved(path) : path)))].sort();
+  return { on: follow(ticks.on), off: follow(ticks.off) };
 }
 
 /**

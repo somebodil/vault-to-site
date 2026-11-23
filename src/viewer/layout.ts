@@ -59,13 +59,23 @@ export function makeGraph(ids: readonly string[], linksOf: (id: string) => reado
   return { nodes, links };
 }
 
+/** The furthest a note moves in one step. Without it, a note that many others pull at would be thrown further at every step. */
+const FASTEST = 40;
+/** Squares are numbered up to this far from the middle, in each direction */
+const FURTHEST_SQUARE = 30_000;
+
+function squareOf(position: number): number {
+  return Math.max(-FURTHEST_SQUARE, Math.min(FURTHEST_SQUARE, Math.floor(position / REACH)));
+}
+
 /** One step. Returns how much the notes moved, a note on average: near zero when the picture has settled. */
 export function step(graph: Graph): number {
   const { nodes, links } = graph;
   // Notes are sorted into squares of the size of the reach: a note is pushed by those in its square and the eight around it
-  const squares = new Map<string, number[]>();
+  const span = 2 * FURTHEST_SQUARE + 3;
+  const squares = new Map<number, number[]>();
   for (const [at, node] of nodes.entries()) {
-    const key = `${String(Math.floor(node.x / REACH))},${String(Math.floor(node.y / REACH))}`;
+    const key = (squareOf(node.x) + FURTHEST_SQUARE + 1) * span + squareOf(node.y) + FURTHEST_SQUARE + 1;
     const square = squares.get(key);
     if (square === undefined) {
       squares.set(key, [at]);
@@ -74,11 +84,11 @@ export function step(graph: Graph): number {
     }
   }
   for (const [at, node] of nodes.entries()) {
-    const sx = Math.floor(node.x / REACH);
-    const sy = Math.floor(node.y / REACH);
+    const sx = squareOf(node.x) + FURTHEST_SQUARE + 1;
+    const sy = squareOf(node.y) + FURTHEST_SQUARE + 1;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
-        for (const other of squares.get(`${String(sx + dx)},${String(sy + dy)}`) ?? []) {
+        for (const other of squares.get((sx + dx) * span + sy + dy) ?? []) {
           if (other <= at) {
             continue;
           }
@@ -113,19 +123,32 @@ export function step(graph: Graph): number {
     const x = b.x - a.x;
     const y = b.y - a.y;
     const length = Math.sqrt(x * x + y * y) || 1;
-    // A note with many links is pulled less by each of them, or it would be torn at
-    const pull = ((length - REST) * 0.06) / Math.sqrt(Math.max(1, Math.min(a.degree, b.degree)));
-    a.vx += (x / length) * pull;
-    a.vy += (y / length) * pull;
-    b.vx -= (x / length) * pull;
-    b.vy -= (y / length) * pull;
+    // Each end is pulled by its share of the links it has. A note with a hundred links is then pulled
+    // as hard in all as a note with one, and is not thrown back and forth by the sum of them.
+    const stretch = (length - REST) * 0.15;
+    a.vx += ((x / length) * stretch) / Math.max(1, a.degree);
+    a.vy += ((y / length) * stretch) / Math.max(1, a.degree);
+    b.vx -= ((x / length) * stretch) / Math.max(1, b.degree);
+    b.vy -= ((y / length) * stretch) / Math.max(1, b.degree);
   }
   let moved = 0;
-  for (const node of nodes) {
+  for (const [at, node] of nodes.entries()) {
     node.vx = (node.vx - node.x * 0.004) * 0.82;
     node.vy = (node.vy - node.y * 0.004) * 0.82;
+    const speed = Math.hypot(node.vx, node.vy);
+    if (speed > FASTEST) {
+      node.vx *= FASTEST / speed;
+      node.vy *= FASTEST / speed;
+    }
     node.x += node.vx;
     node.y += node.vy;
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+      // Should a number be lost all the same, the note starts again from a spot of its own
+      node.x = 12 * Math.sqrt(at + 1);
+      node.y = 0;
+      node.vx = 0;
+      node.vy = 0;
+    }
     moved += Math.abs(node.vx) + Math.abs(node.vy);
   }
   return nodes.length === 0 ? 0 : moved / nodes.length;

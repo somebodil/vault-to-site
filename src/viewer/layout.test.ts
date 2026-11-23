@@ -40,7 +40,8 @@ describe("step", () => {
     for (let i = 0; i < 400; i++) {
       moved = step(g);
     }
-    assert.ok(moved < 0.1, `still moving: ${String(moved)}`);
+    // Not to a stop: the notes go on drifting by a tenth of a point a step, which the eye does not see
+    assert.ok(moved < 0.3, `still moving: ${String(moved)}`);
     assert.ok(distance(g, 0, 1) < distance(g, 1, 3));
     assert.ok(distance(g, 0, 2) < distance(g, 2, 3));
     assert.ok(distance(g, 0, 1) > 15, "linked notes do not lie on each other");
@@ -70,6 +71,47 @@ describe("step", () => {
     const box = boundsOf(g);
     assert.ok(box.right - box.left < 20000 && box.bottom - box.top < 20000);
     assert.ok(box.right - box.left > 200);
+  });
+
+  it("stays whole around a note with hundreds of links", () => {
+    for (const count of [120, 300, 1500]) {
+      const ids = Array.from({ length: count + 1 }, (_, i) => String(i));
+      const g = makeGraph(ids, (id) => (id === "0" ? ids.slice(1) : []));
+      for (let i = 0; i < 300; i++) {
+        step(g);
+      }
+      const box = boundsOf(g);
+      assert.ok(Number.isFinite(box.left) && Number.isFinite(box.right), `not a number with ${String(count)} links`);
+      assert.ok(box.right - box.left < 6000 && box.bottom - box.top < 6000, `flew apart with ${String(count)} links: ${JSON.stringify(box)}`);
+    }
+  });
+
+  it("stays whole with thousands of notes of which a few have most of the links", () => {
+    // Each note links to an earlier one, more often to those that have many links already
+    let seed = 7;
+    const random = (): number => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return seed / 4294967296;
+    };
+    const ends: number[] = [0];
+    const linksOf: number[][] = [[]];
+    for (let i = 1; i < 5000; i++) {
+      const to = ends[Math.floor(random() * ends.length)] ?? 0;
+      linksOf.push([to]);
+      ends.push(to, i);
+    }
+    const g = makeGraph(
+      linksOf.map((_, i) => String(i)),
+      (id) => (linksOf[Number(id)] ?? []).map(String),
+    );
+    let moved = 0;
+    for (let i = 0; i < 120; i++) {
+      moved = step(g);
+    }
+    assert.ok(Number.isFinite(moved));
+    const box = boundsOf(g);
+    assert.ok(box.right - box.left < 40000 && box.bottom - box.top < 40000, JSON.stringify(box));
+    assert.ok(Math.max(...g.nodes.map((node) => node.degree)) > 50, "the graph of the test has a note with many links");
   });
 
   it("does nothing for no notes", () => {

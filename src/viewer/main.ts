@@ -79,6 +79,9 @@ function start(index: SiteIndex): void {
   };
   applyTheme();
 
+  /** The id of the note that is shown, or empty */
+  let current = "";
+
   // ---- What is worked out once for the whole site ----
   const root = buildTree(index);
   /** For every note, the notes that link to it */
@@ -207,9 +210,24 @@ function start(index: SiteIndex): void {
   // ---- The two sides: next to the note on a wide window, over it on a narrow one ----
   const narrow = window.matchMedia("(max-width: 750px)");
   const shown = { left: false, right: false };
+  /**
+   * The note that is open with the notes it links to and the notes that link
+   * to it. Placed only while the side is seen: on a phone it mostly is not.
+   */
+  let graphOf: string | null = null;
+  const drawLocalGraph = (): void => {
+    if (!shown.right || graphOf === current) {
+      return;
+    }
+    graphOf = current;
+    const around = index.notes[current] === undefined ? [] : [...new Set([current, ...(index.notes[current]?.l ?? []), ...(linkedFrom.get(current) ?? [])])];
+    localGraph.show(around, current === "" ? null : current);
+  };
+
   const applySides = (): void => {
     app.classList.toggle("v2s-show-left", shown.left);
     app.classList.toggle("v2s-show-right", shown.right);
+    drawLocalGraph();
     body.classList.toggle("is-mobile", narrow.matches);
     body.classList.toggle("is-phone", narrow.matches);
   };
@@ -240,8 +258,8 @@ function start(index: SiteIndex): void {
   sidesForWidth();
 
   // ---- Showing a note ----
-  let current = "";
   let drawing = 0;
+
   /** What a search asked to be shown in the note it leads to */
   let pendingFind = "";
 
@@ -257,7 +275,7 @@ function start(index: SiteIndex): void {
       titleParent.textContent = "";
       drawOutline([]);
       backlinks.replaceChildren();
-      localGraph.show([], null);
+      drawLocalGraph();
       return;
     }
     const slash = path.lastIndexOf("/");
@@ -294,7 +312,7 @@ function start(index: SiteIndex): void {
     addFolding(sizer, icons["right-triangle"] ?? "");
     drawOutline(headings);
     drawBacklinks(id);
-    drawLocalGraph(id);
+    drawLocalGraph();
 
     const target = heading !== "" ? headingEl(heading) : find !== "" ? textEl(find) : null;
     if (target !== null) {
@@ -349,12 +367,6 @@ function start(index: SiteIndex): void {
         return el("div", { cls: "tree-item" }, [row]);
       }),
     );
-  };
-
-  /** The note that is open with the notes it links to and the notes that link to it */
-  const drawLocalGraph = (id: string): void => {
-    const around = index.notes[id] === undefined ? [] : [...new Set([id, ...(index.notes[id]?.l ?? []), ...(linkedFrom.get(id) ?? [])])];
-    localGraph.show(around, id);
   };
 
   const drawBacklinks = (id: string): void => {
@@ -470,6 +482,10 @@ function start(index: SiteIndex): void {
   const route = (): void => {
     // What was not noted of the note before is not noted for this one
     window.clearTimeout(noting);
+    // An address of another kind, as that of a footnote, is not a note: what is shown stays
+    if (window.location.hash.length > 1 && !window.location.hash.startsWith("#/") && current !== "") {
+      return;
+    }
     const [, id = "", heading = ""] = window.location.hash.split("/");
     const wanted = id !== "" ? safeDecode(id) : (firstNote(root, index) ?? "");
     const find = pendingFind;
