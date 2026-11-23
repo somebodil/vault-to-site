@@ -22,10 +22,10 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 
 Under **Written as** you choose what a build writes, and where, from the root of the vault:
 
-- **Zip archive** (to begin with, `vault-to-site.zip`): one file. A build writes over the archive of the build before.
-- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build empties the folder first, and refuses a folder that holds anything but a site of this plugin. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
+- **Zip archive** (to begin with, `vault-to-site.zip`): one file. The archive of the build before gives way only when the new one is whole: a build that is stopped or fails leaves it as it was.
+- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it that was never a site of this plugin is refused. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
 
-What a build writes is never part of a site, and it is not a note. If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
+What a build has written is never part of a site, also after you give the archive or the folder another name. If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
 
 ## What the site has
 
@@ -42,7 +42,7 @@ On a narrow window, as on a phone, the two sides open over the note.
 
 Three things decide, in this order. A later one always wins over an earlier one.
 
-1. **The ticks.** A ticked folder takes in everything inside it, also what you add later. Take the tick off a folder or a note inside it to leave that out.
+1. **The ticks.** A ticked folder takes in everything inside it, also what you add later. Take the tick off a folder or a note inside it to leave that out. What is left out stays left out when you rename or move it in Obsidian. A rename that Obsidian cannot see, as one that a sync brings, is not followed: the dialog then names the path that is gone, because what it was is ticked again under its new name.
 2. **Leave out by path.** JavaScript regular expressions, separated by commas. A path that one of them matches stays out. Upper and lower case are the same.
 
    | Input               | What stays out                                 |
@@ -51,7 +51,11 @@ Three things decide, in this order. A later one always wins over an earlier one.
    | `(^\|/)_templates/` | Every folder called `_templates`, however deep |
    | `^Archive/, \.pdf$` | The folder `Archive`, and every PDF            |
 
+   A comma is part of a pattern when it is escaped (`\,`), inside square brackets, inside a group, or inside a quantifier (`{1,3}`). **A pattern that is not a valid regular expression stops the build** until you correct it or take it out: a rule that does not work keeps nothing out. `*.png` is such a pattern; write `\.png$`.
+
 3. **Leave out by property.** One property a line, as `key: value`. A note that has one of them stays out. To begin with these are `type: private` and `publish: false`.
+
+   **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
 Pictures and other files that are not notes follow the notes that use them:
 
@@ -70,9 +74,13 @@ A note that is not part of the site leaves nothing in it:
 - **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link. Where the link led is removed, and the search finds only the words that show.
 - **Its pictures stay out with it,** as told above.
 
+The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. A style rule of a plugin that names a folder or a note of the vault is not copied.
+
 The step **Look over** lists the links and embeds that are cut this way.
 
-**A name can still show.** The build cannot know every way a name gets onto a page: the words of a link, a sentence that mentions the note, or what another plugin writes when a note is drawn, such as a query that lists notes. So after a build, the words of every page are looked through for the names of the notes that a rule keeps out, and the dialog says which name shows where. It changes nothing: whether a name may show is for you to say.
+**A build is what you looked over.** If the vault changes between the list and the build so that other notes or files would go in, the build is not done, and you look again.
+
+**A name can still show.** The build cannot know every way a name gets onto a page: the words of a link, a sentence that mentions the note, or what another plugin writes when a note is drawn, such as a query that lists notes. So after a build, the words of every page are looked through for the names of the notes that a rule keeps out, and the dialog says which name shows where. The names it looks for are those of every note a rule is meant for, ticked or not. It changes nothing: whether a name may show is for you to say.
 
 ## Putting the site on GitHub Pages
 

@@ -101,12 +101,9 @@ export class BuildModal extends Modal {
         // A pattern that does not work keeps nothing out, and what it was written for would go in
         summary.createDiv({ cls: "vault-to-site-warning", text: "A pattern is not a valid regular expression. Correct it or take it out: a site is not built with a rule that does not work." });
       }
-      const gone = missingTicks(this.settings.ticks, (path) => this.app.vault.getAbstractFileByPath(path) !== null).off;
+      const gone = this.goneLeftOut();
       if (gone.length > 0) {
-        summary.createDiv({
-          cls: "vault-to-site-warning",
-          text: `Left out before, and no longer in the vault: ${gone.join(", ")}. If one of them was renamed outside Obsidian, as by a sync, it is ticked again under its new name. Look at the tree.`,
-        });
+        summary.createDiv({ cls: "vault-to-site-warning", text: goneWarning(gone) });
       }
       review?.setDisabled(hasInvalidPattern || choice.notes.length + choice.files.length === 0);
     };
@@ -285,6 +282,11 @@ export class BuildModal extends Modal {
     readFiles();
   }
 
+  /** The paths that were left out of a ticked folder and are not in the vault any more */
+  private goneLeftOut(): string[] {
+    return missingTicks(this.settings.ticks, (path) => this.app.vault.getAbstractFileByPath(path) !== null).off;
+  }
+
   // ---- Step 2: what a build would hold ----
 
   private showReview(): void {
@@ -303,6 +305,12 @@ export class BuildModal extends Modal {
       cls: "vault-to-site-lead",
       text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} will be written to ${place}. Nothing else of the vault goes into the site.`,
     });
+
+    // Said again here, right above the list it is about
+    const gone = this.goneLeftOut();
+    if (gone.length > 0) {
+      contentEl.createEl("p", { cls: "vault-to-site-warning", text: goneWarning(gone) });
+    }
 
     const list = (title: string, lines: string[], isOpen: boolean, note?: string): void => {
       const details = contentEl.createEl("details", { cls: "vault-to-site-details" });
@@ -495,6 +503,10 @@ async function keepAwake(): Promise<WakeLockSentinel | null> {
   } catch {
     return null;
   }
+}
+
+function goneWarning(gone: string[]): string {
+  return `Left out before, and no longer in the vault: ${gone.join(", ")}. If one of them was renamed outside Obsidian, as by a sync, it is ticked again under its new name. Look at the list.`;
 }
 
 function count(n: number, noun: string): string {
