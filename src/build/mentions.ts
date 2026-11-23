@@ -29,6 +29,14 @@ function nameOf(path: string): string {
 const LATIN = /[0-9a-z\u00c0-\u024f]/i;
 const LETTER = /[\p{L}\p{N}]/u;
 
+/** Looks through the pages for names, one page at a time, so that the words of all pages need not be kept */
+export interface MentionFinder {
+  /** Looks through the words of one page */
+  add(path: string, text: string): void;
+  /** What was found so far */
+  found(): Mention[];
+}
+
 /**
  * Looks through every text once, whatever the number of names: a word of the
  * text is looked up among the first words of the names, and only the names
@@ -38,7 +46,7 @@ const LETTER = /[\p{L}\p{N}]/u;
  * a word ends, so that `plan` is not found in `planet`. In scripts that add
  * endings to a word without a space, as Korean does, it may go on.
  */
-export function findMentions(pages: readonly { path: string; text: string }[], keptOut: readonly string[]): Mention[] {
+export function mentionFinder(keptOut: readonly string[]): MentionFinder {
   /** By the first word of a name: the names that start with it, and where that word starts in them */
   const byFirstWord = new Map<string, { path: string; name: string; lead: number }[]>();
   for (const path of keptOut) {
@@ -56,39 +64,53 @@ export function findMentions(pages: readonly { path: string; text: string }[], k
       list.push(entry);
     }
   }
-  if (byFirstWord.size === 0) {
-    return [];
-  }
   /** The lengths the first words of the names have: a word of the text is looked up with its starts of these lengths */
   const lengths = [...new Set([...byFirstWord.keys()].map((word) => word.length))].sort((a, b) => a - b);
-
   const shown = new Map<string, Set<string>>();
-  for (const page of pages) {
-    const text = page.text.toLowerCase();
-    WORD.lastIndex = 0;
-    for (let word = WORD.exec(text); word !== null; word = WORD.exec(text)) {
-      for (const length of lengths) {
-        if (length > word[0].length) {
-          break;
-        }
-        for (const candidate of byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length)) ?? []) {
-          const start = word.index - candidate.lead;
-          const after = text.charAt(start + candidate.name.length);
-          const goesOn = LETTER.test(after) && LATIN.test(candidate.name.charAt(candidate.name.length - 1));
-          if (goesOn || !text.startsWith(candidate.name, start)) {
-            continue;
+
+  return {
+    add(pagePath, pageText) {
+      if (byFirstWord.size === 0) {
+        return;
+      }
+      const text = pageText.toLowerCase();
+      // A pattern of its own: this may run while another page is looked through
+      const words = new RegExp(WORD.source, WORD.flags);
+      for (let word = words.exec(text); word !== null; word = words.exec(text)) {
+        for (const length of lengths) {
+          if (length > word[0].length) {
+            break;
           }
-          let pagesOf = shown.get(candidate.path);
-          if (pagesOf === undefined) {
-            pagesOf = new Set();
-            shown.set(candidate.path, pagesOf);
+          for (const candidate of byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length)) ?? []) {
+            const start = word.index - candidate.lead;
+            const after = text.charAt(start + candidate.name.length);
+            const goesOn = LETTER.test(after) && LATIN.test(candidate.name.charAt(candidate.name.length - 1));
+            if (goesOn || !text.startsWith(candidate.name, start)) {
+              continue;
+            }
+            let pagesOf = shown.get(candidate.path);
+            if (pagesOf === undefined) {
+              pagesOf = new Set();
+              shown.set(candidate.path, pagesOf);
+            }
+            pagesOf.add(pagePath);
           }
-          pagesOf.add(page.path);
         }
       }
-    }
+    },
+    found() {
+      return [...shown]
+        .map(([path, pagesOf]) => ({ path, shownIn: [...pagesOf].sort() }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+    },
+  };
+}
+
+/** The same for pages that are all there */
+export function findMentions(pages: readonly { path: string; text: string }[], keptOut: readonly string[]): Mention[] {
+  const finder = mentionFinder(keptOut);
+  for (const page of pages) {
+    finder.add(page.path, page.text);
   }
-  return [...shown]
-    .map(([path, pagesOf]) => ({ path, shownIn: [...pagesOf].sort() }))
-    .sort((a, b) => a.path.localeCompare(b.path));
+  return finder.found();
 }

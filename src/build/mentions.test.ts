@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findMentions } from "./mentions.ts";
+import { findMentions, mentionFinder } from "./mentions.ts";
 
 describe("findMentions", () => {
   const pages = [
@@ -43,5 +43,18 @@ describe("findMentions", () => {
   it("finds nothing without names or without pages", () => {
     assert.deepEqual(findMentions(pages, []), []);
     assert.deepEqual(findMentions([], ["Private/Hidden Plan.md"]), []);
+  });
+});
+
+describe("mentionFinder", () => {
+  it("finds the same, page by page", () => {
+    const finder = mentionFinder(["Private/Hidden Plan.md", "Money/Budget 2026.md"]);
+    finder.add("b.md", "the Budget 2026");
+    assert.deepEqual(finder.found(), [{ path: "Money/Budget 2026.md", shownIn: ["b.md"] }]);
+    finder.add("a.md", "a hidden plan, and Budget 2026 again");
+    assert.deepEqual(finder.found(), [
+      { path: "Money/Budget 2026.md", shownIn: ["a.md", "b.md"] },
+      { path: "Private/Hidden Plan.md", shownIn: ["a.md"] },
+    ]);
   });
 });

@@ -11,7 +11,7 @@ import {
   type SiteIndex,
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
-import { findMentions, type Mention } from "./mentions.ts";
+import { mentionFinder, type Mention } from "./mentions.ts";
 import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { renderNote, resourceMap, type RenderContext } from "./render.ts";
@@ -126,9 +126,23 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
   const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage };
   const failed: BuildResult["failed"] = [];
   const unfinished: string[] = [];
-  /** By the place of the note in the list, so that the site is the same whatever note was ready first */
-  const entries: (NoteEntry | undefined)[] = [];
-  const texts: (string | undefined)[] = [];
+  const notes: Record<string, NoteEntry> = {};
+  const mentions = mentionFinder(choice.guarded);
+  // The words of the notes, for the search. A part is written when it is full, so that the words of a
+  // large vault are not all held at once.
+  let part: SearchPart = [];
+  let partLength = 0;
+  let parts = 0;
+  const closePart = async (): Promise<void> => {
+    if (part.length === 0) {
+      return;
+    }
+    const full = part;
+    const number = parts++;
+    part = [];
+    partLength = 0;
+    await output.text(`data/s/${String(number)}.js`, `__site.search(${String(number)},${JSON.stringify(full)});\n`);
+  };
 
   const drawNote = async (at: number): Promise<void> => {
     const path = choice.notes[at];
@@ -164,11 +178,17 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
 
     // The properties are shown above the note, so they are words of the page as well
     const properties = page.props.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
-    texts[at] = [...properties, words].join("\n");
+    const text = [...properties, words].join("\n");
+    mentions.add(path, text);
+    part.push([id, text]);
+    partLength += text.length;
+    if (partLength >= SEARCH_PART_LENGTH) {
+      await closePart();
+    }
     const links = Object.keys(app.metadataCache.resolvedLinks[path] ?? {})
       .map((to) => noteIds.get(to))
       .filter((to): to is string => to !== undefined && to !== id);
-    entries[at] = { p: path, l: links };
+    notes[id] = { p: path, l: links };
     done++;
   };
 
@@ -209,32 +229,6 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
       stage.remove();
     }
 
-    const notes: Record<string, NoteEntry> = {};
-    let part: SearchPart = [];
-    let partLength = 0;
-    let parts = 0;
-    const closePart = async (): Promise<void> => {
-      if (part.length > 0) {
-        await output.text(`data/s/${String(parts)}.js`, `__site.search(${String(parts)},${JSON.stringify(part)});\n`);
-        parts++;
-        part = [];
-        partLength = 0;
-      }
-    };
-    for (const [at, path] of choice.notes.entries()) {
-      const entry = entries[at];
-      if (entry === undefined) {
-        continue;
-      }
-      const id = idOf(path);
-      notes[id] = entry;
-      const text = texts[at] ?? "";
-      part.push([id, text]);
-      partLength += text.length;
-      if (partLength >= SEARCH_PART_LENGTH) {
-        await closePart();
-      }
-    }
     await closePart();
 
     const files: Record<string, FileEntry> = {};
@@ -285,10 +279,7 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
       rewritten: output.rewritten,
       failed: failed.sort((a, b) => a.path.localeCompare(b.path)),
       unfinished: unfinished.sort(),
-      mentions: findMentions(
-        choice.notes.map((path, at) => ({ path, text: texts[at] ?? "" })),
-        choice.guarded,
-      ),
+      mentions: mentions.found(),
     };
   } catch (error) {
     await output.abort().catch(() => undefined);
