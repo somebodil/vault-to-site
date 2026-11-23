@@ -260,6 +260,11 @@ function dropOtherAddresses(host: HTMLElement, context: RenderContext): void {
   host.querySelectorAll("*").forEach((el) => {
     for (const attribute of Array.from(el.attributes)) {
       const name = attribute.name.toLowerCase();
+      if (name === "src" && el.classList.contains("internal-embed")) {
+        // What an embed was written with. The embeds of what is not in the site have lost it already,
+        // and rules of themes and snippets pick an embed by it, as one that puts a picture to the side.
+        continue;
+      }
       if (ADDRESS_ATTRIBUTES.has(name)) {
         const drawsIt = name === "src" ? MEDIA.has(el.tagName) : el.localName === "image" && name.endsWith("href");
         if (isGood(attribute.value) || (drawsIt && isPicture(attribute.value))) {
