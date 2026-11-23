@@ -15,7 +15,7 @@ import { mentionFinder, type Mention } from "./mentions.ts";
 import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { renderNote, resourceMap, type RenderContext } from "./render.ts";
-import { captureStyles } from "./styles.ts";
+import { captureScriptFonts, captureStyles } from "./styles.ts";
 import { shownValue, shownWords } from "./words.ts";
 
 declare const VIEWER_JS: string;
@@ -220,8 +220,9 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
       // After the notes: drawing a formula adds styles for the signs it uses
       progress(done, total, "Styles");
       const styles = await captureStyles(doc);
-      await output.text("app/obsidian.css", styles.css);
-      for (const resource of styles.resources) {
+      const fonts = await captureScriptFonts(doc, app.vault.adapter, normalizePath(app.vault.configDir + "/fonts"));
+      await output.text("app/obsidian.css", styles.css + fonts.css);
+      for (const resource of [...styles.resources, ...fonts.resources]) {
         await output.binary("app/" + resource.name, resource.bytes);
       }
       done++;
