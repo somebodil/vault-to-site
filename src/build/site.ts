@@ -137,7 +137,6 @@ async function build(
   const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage };
   const failed: BuildResult["failed"] = [];
   const unfinished: string[] = [];
-  const notes: Record<string, NoteEntry> = {};
   const mentions = mentionFinder(choice.guarded);
   // The words of the notes, for the search. A part is written when it is full, so that the words of a
   // large vault are not all held at once.
@@ -155,10 +154,36 @@ async function build(
     await output.text(`data/s/${String(number)}.js`, `__site.search(${String(number)},${JSON.stringify(full)});\n`);
   };
 
+  // Several notes are drawn at a time, and they are not done in the order they were begun in. What the site
+  // holds of them is put in the order of the notes all the same: the same vault gives the same files, so
+  // that a site kept in a repository changes only where the notes have changed.
+  const entries: ([string, NoteEntry] | undefined)[] = [];
+  const drawn = new Map<number, [string, string] | null>();
+  let inOrder = 0;
+  let ordering: Promise<void> = Promise.resolve();
+  /** Takes what a note gives to the search, or nothing for a note that was passed over, and writes on what is next in the order */
+  const settle = (at: number, words: [string, string] | null): Promise<void> => {
+    drawn.set(at, words);
+    ordering = ordering.then(async () => {
+      for (let next = drawn.get(inOrder); next !== undefined; next = drawn.get(inOrder)) {
+        drawn.delete(inOrder++);
+        if (next !== null) {
+          part.push(next);
+          partLength += next[1].length;
+          if (partLength >= SEARCH_PART_LENGTH) {
+            await closePart();
+          }
+        }
+      }
+    });
+    return ordering;
+  };
+
   const drawNote = async (at: number): Promise<void> => {
     const path = choice.notes[at];
     const file = path === undefined ? null : app.vault.getAbstractFileByPath(path);
     if (path === undefined || !(file instanceof TFile)) {
+      await settle(at, null);
       return;
     }
     progress(done, total, path);
@@ -191,15 +216,11 @@ async function build(
     const properties = page.props.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
     const text = [...properties, words].join("\n");
     mentions.add(path, text);
-    part.push([id, text]);
-    partLength += text.length;
-    if (partLength >= SEARCH_PART_LENGTH) {
-      await closePart();
-    }
+    await settle(at, [id, text]);
     const links = Object.keys(app.metadataCache.resolvedLinks[path] ?? {})
       .map((to) => noteIds.get(to))
       .filter((to): to is string => to !== undefined && to !== id);
-    notes[id] = { p: path, l: links };
+    entries[at] = [id, { p: path, l: links }];
     done++;
   };
 
@@ -262,6 +283,7 @@ async function build(
         icons[name] = icon.outerHTML;
       }
     }
+    const notes: Record<string, NoteEntry> = Object.fromEntries(entries.filter((entry) => entry !== undefined));
     const index: SiteIndex = {
       name: app.vault.getName(),
       notes,

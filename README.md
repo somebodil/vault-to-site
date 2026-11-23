@@ -85,7 +85,7 @@ The step **Look over** lists the links and embeds that are cut this way.
 
 ## Putting the site on GitHub Pages
 
-The folder of the site is ready for it: every address in it is relative, and it has the `.nojekyll` file that GitHub Pages needs to serve all of it. Put the content of the folder into the repository or the branch that your pages are served from.
+The folder of the site is ready for it: every address in it is relative, and it has the `.nojekyll` file that GitHub Pages needs to serve all of it. Put the content of the folder into the repository or the branch that your pages are served from. A build of the same notes gives the same files, so a commit of the site shows only what has changed.
 
 **A site on GitHub Pages can be read by everyone.** Look over the list before you build for it.
 
