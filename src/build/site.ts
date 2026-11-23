@@ -1,4 +1,4 @@
-import { type App, getIcon, normalizePath, parseLinktext, TFile } from "obsidian";
+import { type App, getIcon, normalizePath, parseLinktext, Platform, TFile } from "obsidian";
 import { signatureOf } from "../select/choose.ts";
 import type { Settings } from "../settings.ts";
 import {
@@ -54,12 +54,18 @@ const SEARCH_PART_LENGTH = 300_000;
 const MOST_FILES_IN_ZIP = 65_535 - 200;
 
 /**
- * How many notes are drawn at a time. Obsidian takes about 60 ms to draw a
- * note, however short, and nearly all of it is waiting. Measured on an
- * emulated phone with 3000 notes: one after the other 160 s, four at a time
- * 40 to 55 s, and 20 to 30 s from eight on. More than that gains nothing.
+ * How many notes are drawn at a time. Obsidian takes long to say that a note
+ * is drawn, however short the note, and nearly all of that is waiting: of
+ * the time a build takes, the processor works for a third. So many are
+ * drawn at a time, until the processor is what is waited for.
+ *
+ * Measured with 1000 notes. On a computer: 16 at a time 11.8 s, 64 at a time
+ * 6.0 s, 128 at a time 4.4 s, 256 at a time 4.1 s. On an emulated phone:
+ * 13.0 s, 7.1 s and 5.7 s for 16, 64 and 128, with the same memory in use.
+ * What is drawn is the same for each. A phone holds fewer at a time, for the
+ * notes that are large.
  */
-const AT_A_TIME = 16;
+const AT_A_TIME = Platform.isMobile ? 64 : 128;
 
 /** A build writes to one place and uses the page of Obsidian to draw: there is one at a time */
 let isBuilding = false;

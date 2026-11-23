@@ -86,9 +86,11 @@ function settled(host: HTMLElement): Promise<boolean> {
   // Formulas, code and embeds say when they are ready, and are waited for by name below. What says nothing
   // is the block of a plugin, such as a query: a note with one is given more time without a change.
   const QUIET = host.querySelector(".internal-embed, .mermaid, iframe, [class*='block-language-'], [class*='dataview']") === null ? 30 : 120;
-  const LONGEST = 6000;
-  const LONGEST_FOR_KNOWN = 4000;
-  const start = Date.now();
+  // How long what is waited for by name may take. Counted in looks, not on the clock: while many notes
+  // are drawn at a time, a look comes late, and a diagram that Obsidian has not got to yet is not given up.
+  const MOST_LOOKS = Math.ceil(4000 / QUIET);
+  const LONGEST = 30_000;
+  let looks = 0;
   const isWaited = (): boolean =>
     host.querySelector(
       ".markdown-embed:not(.is-loaded), .math:not(.is-loaded), pre > code[class*='language-']:not(.is-loaded), .block-language-dataview:empty, .block-language-dataviewjs:empty",
@@ -103,7 +105,7 @@ function settled(host: HTMLElement): Promise<boolean> {
       resolve(!isWaited());
     };
     const quiet = (): void => {
-      if (isWaited() && Date.now() - start < LONGEST_FOR_KNOWN) {
+      if (isWaited() && ++looks < MOST_LOOKS) {
         timer = window.setTimeout(quiet, QUIET);
         return;
       }

@@ -16,7 +16,7 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 1. Run the command **vault-to-site: Build a site**, or tap its icon in the ribbon.
 2. Tick what goes into the site, and choose **Look over**.
 3. Read the list, and choose **Build**.
-4. The site is the archive `vault-to-site.zip` in your vault. Unpack it and open `index.html` with a browser. On a phone, **Share or open** hands the archive to another app.
+4. The site is the archive `vault-to-site.zip` in your vault. Unpack it and open `index.html` with a browser. On a phone, **Share or open** hands the archive to another app. The archive holds a `README.txt` for the one who gets it: how to open the site, and how to put it on the web.
 
 ## The archive, or a folder
 
@@ -109,12 +109,13 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 
 ## What was tried, and what was not
 
-- **Building** ran in Obsidian 1.15.1 on an emulated Android phone: a vault of difficult cases (private notes, embeds inside embeds, properties with a mistake, a canvas, a base, notes with scripts, HTML and odd names), 168 real notes with 70 pictures in 5 to 8 seconds, 3000 generated notes in about half a minute, and a site of 51 MB, whose archive is written in pieces. The same notes built twice gave the same files, byte for byte.
-- **Renames, stops and refusals** were done in Obsidian on that phone: a folder with left-out notes renamed, a build stopped half way, a vault changed between the list and the build, a file of the user at the place of the archive.
-- **The look** was compared with Obsidian by the styles the browser works out for headings, text, links, code, callouts, quotes, lists and tables, with the default theme, with a snippet and an accent color, and with the Minimal theme.
+- **Building on a computer** ran in Obsidian 1.15.1 on a Mac: a note that uses every kind of block Obsidian draws, 1000 generated notes in 4 to 5 seconds, and 300 notes with four diagrams and two formulas each, in which every diagram was drawn.
+- **Building on a phone** ran in Obsidian 1.15.1 on an emulated Android phone: a vault of difficult cases (private notes, embeds inside embeds, properties with a mistake, a canvas, a base, notes with scripts, HTML and odd names), 168 real notes with 70 pictures, 1000 generated notes in 6 to 8 seconds, and a site of 51 MB, whose archive is written in pieces. The same notes built twice gave the same files, byte for byte.
+- **The look** was compared with the reading view of Obsidian on the computer, block by block: the size of each block, the styles the browser works out for it, and its picture. Headings, text, lists, tasks, quotes, callouts, code, tables, formulas, six kinds of diagram, pictures, embedded notes and the properties are the same. What differs is what a reader cannot use: the buttons that remove a value or add a property, and a link that leads out of the site, which is shown as one that leads nowhere.
+- **Renames, stops and refusals** were done in Obsidian on the phone: a folder with left-out notes renamed, a build stopped half way, a vault changed between the list and the build, a file of the user at the place of the archive.
 - **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
 - **In Chrome on the emulated phone** the site was loaded from a web server and read by script: it comes up in the layout for a phone. Touching it there was not tried, because the emulator stopped when a window of Chrome was touched.
-- **Not tried:** building in Obsidian on a computer, on an iPhone or an iPad, and using the site by touch in the browser of a real phone.
+- **Not tried:** building in Obsidian on Windows or Linux, on an iPhone or an iPad, the output of plugins of others as Dataview, and using the site by touch in the browser of a real phone.
 
 ## Development
 
