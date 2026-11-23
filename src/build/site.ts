@@ -10,6 +10,7 @@ import {
   type SiteIndex,
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
+import { findMentions, type Mention } from "./mentions.ts";
 import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { renderNote, resourceMap, type RenderContext } from "./render.ts";
@@ -32,6 +33,8 @@ export interface BuildResult {
   rewritten: number;
   /** Notes that Obsidian could not draw. The site says so in their place. */
   failed: { path: string; message: string }[];
+  /** Notes that a rule keeps out and whose name shows on a page of the site */
+  mentions: Mention[];
 }
 
 /** Thrown when the build was stopped from outside */
@@ -111,7 +114,9 @@ export async function buildSite(
           .filter(([key]) => key !== "position")
           .map(([key, value]) => [key, value as PropertyValue]),
       };
-      texts[at] = rendered.text;
+      // The properties are shown above the note, so they are words of the page as well
+      const properties = page.props.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
+      texts[at] = [...properties, rendered.text].join("\n");
     } catch (error) {
       console.error(error);
       failed.push({ path, message: error instanceof Error ? error.message : String(error) });
@@ -223,6 +228,10 @@ export async function buildSite(
     millis: Date.now() - start,
     rewritten: output.rewritten,
     failed: failed.sort((a, b) => a.path.localeCompare(b.path)),
+    mentions: findMentions(
+      choice.notes.map((path, at) => ({ path, text: texts[at] ?? "" })),
+      [...choice.byProperty.map((x) => x.path), ...choice.byPattern].filter((path) => path.toLowerCase().endsWith(".md")),
+    ),
   };
 }
 

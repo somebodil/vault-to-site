@@ -1,4 +1,4 @@
-import { type App, Modal, Setting } from "obsidian";
+import { type App, Modal, Platform, Setting } from "obsidian";
 import { zipPath } from "../build/output.ts";
 import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
@@ -374,7 +374,7 @@ export class BuildModal extends Modal {
       }),
     );
 
-    const done = (title: string, lines: string[]): void => {
+    const done = (title: string, lines: string[], archive?: string): void => {
       this.building = false;
       this.setTitle(title);
       bar.remove();
@@ -384,6 +384,15 @@ export class BuildModal extends Modal {
         label.createEl("p", { text: line });
       }
       buttons.clear();
+      // Not part of the public API, so it is used only where it is there. On a phone it opens the sheet to share the file.
+      const opener = (this.app as unknown as { openWithDefaultApp?: (path: string) => unknown }).openWithDefaultApp;
+      if (archive !== undefined && typeof opener === "function") {
+        buttons.addButton((button) =>
+          button.setButtonText(Platform.isMobile ? "Share or open" : "Open the archive").onClick(() => {
+            opener.call(this.app, archive);
+          }),
+        );
+      }
       buttons
         .addButton((button) => button.setButtonText("Back").onClick(() => this.showChoose()))
         .addButton((button) =>
@@ -415,7 +424,13 @@ export class BuildModal extends Modal {
       if (result.failed.length > 0) {
         lines.push(`${count(result.failed.length, "note")} could not be drawn, and the site says so in their place: ${result.failed.map((x) => x.path).join(", ")}`);
       }
-      done("The site is built", lines);
+      if (result.mentions.length > 0) {
+        lines.push(
+          `${count(result.mentions.length, "note")} that a rule keeps out ${result.mentions.length === 1 ? "has its" : "have their"} name on a page of the site. A name gets there with the words of a link, with a sentence, or with what another plugin lists:`,
+          ...result.mentions.map((x) => `${x.path}  in  ${x.shownIn.join(", ")}`),
+        );
+      }
+      done("The site is built", lines, this.settings.format === "zip" ? result.place : undefined);
     } catch (error) {
       if (error instanceof BuildStopped) {
         done("The build was stopped", ["No site was finished. Build again to have one."]);

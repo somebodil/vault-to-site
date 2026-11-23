@@ -62,7 +62,7 @@ function settled(host: HTMLElement): Promise<void> {
   const LONGEST_FOR_KNOWN = 4000;
   const start = Date.now();
   const isWaited = (): boolean =>
-    host.querySelector(".markdown-embed:not(.is-loaded), .math:not(.is-loaded)") !== null ||
+    host.querySelector(".markdown-embed:not(.is-loaded), .math:not(.is-loaded), .block-language-dataview:empty, .block-language-dataviewjs:empty") !== null ||
     Array.from(host.querySelectorAll(".mermaid")).some((diagram) => diagram.querySelector("svg") === null);
   return new Promise((resolve) => {
     let timer = 0;
@@ -144,7 +144,26 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
     link.setAttribute("rel", "noopener");
   });
   host.querySelectorAll("input[type=checkbox]").forEach((box) => box.setAttribute("disabled", ""));
+  dropInnerAddresses(host);
   host.querySelectorAll(`[${SOURCE}]`).forEach((el) => el.removeAttribute(SOURCE));
+}
+
+/** An address that leads into the running Obsidian, or to a file of the device */
+const INNER_ADDRESS = /^\s*(app|capacitor|file):\/\/|\/_capacitor_file_\//i;
+
+/**
+ * Takes out every address that only works inside Obsidian. The pictures and
+ * links of the site have theirs already; what is left of this kind would be
+ * dead in the site, and it holds the path of the vault on the device.
+ */
+function dropInnerAddresses(host: HTMLElement): void {
+  host.querySelectorAll("*").forEach((el) => {
+    for (const attribute of Array.from(el.attributes)) {
+      if (INNER_ADDRESS.test(attribute.value)) {
+        el.removeAttribute(attribute.name);
+      }
+    }
+  });
 }
 
 /** The note that the text around an element comes from: the embedded note it is inside of, or the note itself */
