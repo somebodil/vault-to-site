@@ -1,0 +1,45 @@
+name: Release
+
+# A release is built here and not on the machine of a developer, so that its
+# files come with an attestation: a signed statement of the commit and the
+# workflow they were built from.
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check that the tag is the version in the manifest
+        run: test "$(jq -r .version manifest.json)" = "$GITHUB_REF_NAME"
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+      - name: Create the release, with the message of the tag as its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The checkout has the commit of the tag, but not always its message
+          git fetch --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag --list "$GITHUB_REF_NAME" --format="%(contents)" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"

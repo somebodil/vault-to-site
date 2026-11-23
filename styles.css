@@ -1,0 +1,149 @@
+/* Where notes are drawn during a build: on the page, so that diagrams can be measured, but out of sight */
+.vault-to-site-stage {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  width: 800px;
+  pointer-events: none;
+}
+
+.vault-to-site-modal {
+  width: min(720px, 94vw);
+}
+
+.vault-to-site-lead {
+  margin-top: 0;
+}
+
+.vault-to-site-muted {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.vault-to-site-warning {
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}
+
+.vault-to-site-summary {
+  margin-bottom: var(--size-4-2);
+  font-weight: var(--font-semibold);
+}
+
+.vault-to-site-summary .vault-to-site-muted,
+.vault-to-site-summary .vault-to-site-warning {
+  font-weight: var(--font-normal);
+}
+
+/* ---- The tree of folders and files ---- */
+
+.vault-to-site-tree {
+  flex: none;
+  max-height: 42vh;
+  overflow-y: auto;
+  margin-bottom: var(--size-4-4);
+  padding: var(--size-4-1) var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.vault-to-site-children {
+  margin-inline-start: 11px;
+  padding-inline-start: 13px;
+  border-inline-start: 1px solid var(--background-modifier-border);
+}
+
+.vault-to-site-row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
+.is-mobile .vault-to-site-row {
+  min-height: 40px;
+}
+
+.vault-to-site-arrow {
+  flex: none;
+  width: 22px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.vault-to-site-arrow.is-folder {
+  cursor: pointer;
+}
+
+.is-mobile .vault-to-site-arrow {
+  width: 32px;
+  font-size: 1.2em;
+}
+
+.vault-to-site-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.vault-to-site-folder-name {
+  overflow: hidden;
+  font-weight: var(--font-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-to-site-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-to-site-count {
+  flex: none;
+  padding-inline-start: var(--size-4-2);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.vault-to-site-invalid {
+  border-color: var(--text-error);
+}
+
+/* ---- Looking over ---- */
+
+.vault-to-site-details {
+  margin-bottom: var(--size-4-2);
+}
+
+.vault-to-site-details > summary {
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.vault-to-site-list {
+  max-height: 32vh;
+  overflow-y: auto;
+  margin: var(--size-4-1) 0 var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* ---- The build ---- */
+
+.vault-to-site-progress {
+  width: 100%;
+}
+
+.vault-to-site-label-line {
+  min-height: 3em;
+  margin-top: var(--size-4-2);
+  overflow-wrap: anywhere;
+}

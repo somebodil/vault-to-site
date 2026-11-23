@@ -1,0 +1,221 @@
+/*
+ * The frame of the site. The look of everything inside it comes from the
+ * style sheets copied from Obsidian (app/obsidian.css): this sheet only puts
+ * the three columns in place and adds what Obsidian does with script.
+ */
+
+body.v2s {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.v2s-app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background-color: var(--background-primary, #fff);
+  color: var(--text-normal, #222);
+  font-family: var(--font-interface, sans-serif);
+}
+
+/* ---- Left: the files ---- */
+
+.v2s-left {
+  display: none;
+  flex: none;
+  flex-direction: column;
+  width: 300px;
+  background-color: var(--background-secondary, #f6f6f6);
+  border-inline-end: 1px solid var(--divider-color, #ddd);
+}
+
+.v2s-show-left .v2s-left {
+  display: flex;
+}
+
+.v2s-left-top {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: var(--header-height, 40px);
+  padding: 0 8px 0 16px;
+}
+
+.v2s-vault-name {
+  flex: 1;
+  overflow: hidden;
+  font-size: var(--font-ui-medium, 15px);
+  font-weight: var(--font-semibold, 600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2s-left .nav-files-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 24px;
+}
+
+/* Obsidian takes the rows of a closed folder off the page. Here they stay and are hidden. */
+.v2s .tree-item.is-collapsed > .tree-item-children {
+  display: none;
+}
+
+.v2s-left .nav-files-container > .tree-item-children {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.v2s-left .tree-item-children .tree-item-children {
+  margin-inline-start: 13px;
+  padding-inline-start: 4px;
+  border-inline-start: var(--nav-indentation-guide-width, 1px) solid var(--nav-indentation-guide-color, rgba(128, 128, 128, 0.2));
+}
+
+.v2s a.tree-item-self {
+  color: var(--nav-item-color, inherit);
+  text-decoration: none;
+}
+
+.v2s a.tree-item-self.is-active {
+  color: var(--nav-item-color-active, inherit);
+}
+
+/* ---- Middle: the note ---- */
+
+.v2s-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.v2s-main .view-header {
+  flex: none;
+}
+
+.v2s-main .view-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.v2s-main .markdown-reading-view,
+.v2s-main .markdown-preview-view {
+  height: 100%;
+}
+
+.v2s-main .markdown-preview-view {
+  overflow-y: auto;
+}
+
+.v2s-button {
+  flex: none;
+}
+
+.v2s-empty {
+  padding: 3em 0;
+  color: var(--text-muted, #777);
+}
+
+.v2s-pdf {
+  width: 100%;
+  height: 80vh;
+  border: 0;
+}
+
+/* An embed that is not part of the site says so. A picture that is not simply is not there. */
+.internal-embed.v2s-left-out::after {
+  content: "Not part of this site";
+  color: var(--text-faint, #999);
+  font-size: var(--font-smaller, 0.85em);
+  font-style: italic;
+}
+
+img.v2s-left-out,
+audio.v2s-left-out,
+video.v2s-left-out {
+  display: none;
+}
+
+.v2s-flash {
+  animation: v2s-flash 1.6s ease-out;
+}
+
+@keyframes v2s-flash {
+  from {
+    background-color: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+  }
+
+  to {
+    background-color: transparent;
+  }
+}
+
+/* ---- Right: the outline and the backlinks ---- */
+
+.v2s-right {
+  display: none;
+  flex: none;
+  width: 280px;
+  overflow-y: auto;
+  padding: 4px 8px 24px;
+  background-color: var(--background-secondary, #f6f6f6);
+  border-inline-start: 1px solid var(--divider-color, #ddd);
+}
+
+.v2s-show-right .v2s-right {
+  display: block;
+}
+
+.v2s-pane-title {
+  padding: 12px 8px 4px;
+  color: var(--text-muted, #777);
+  font-size: var(--font-ui-small, 13px);
+  font-weight: var(--font-semibold, 600);
+}
+
+.v2s-scrim {
+  display: none;
+}
+
+/* ---- Search ---- */
+
+.v2s-modal .suggestion-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- A narrow window: the sides lie over the note ---- */
+
+@media (max-width: 750px) {
+  .v2s-left,
+  .v2s-right {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(86vw, 340px);
+  }
+
+  .v2s-left {
+    left: 0;
+  }
+
+  .v2s-right {
+    right: 0;
+  }
+
+  .v2s-show-left .v2s-scrim,
+  .v2s-show-right .v2s-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: block;
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+}

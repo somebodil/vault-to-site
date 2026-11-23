@@ -1,0 +1,60 @@
+/** The patterns of an exclude input. */
+export interface ExcludeRules {
+  /** The patterns that could be compiled. They ignore case. */
+  patterns: RegExp[];
+  /** True if a pattern is not a valid regular expression */
+  hasInvalid: boolean;
+}
+
+/**
+ * Splits an exclude input at commas into patterns.
+ *
+ * A comma belongs to the pattern, not to the list, when it is escaped (`\,`),
+ * inside a character class (`[a,b]`) or inside a quantifier (`{1,3}`).
+ * Whitespace around a pattern is dropped, and so are empty patterns.
+ */
+export function splitPatterns(input: string): string[] {
+  const patterns: string[] = [];
+  let pattern = "";
+  let inClass = false;
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (char === "\\") {
+      // An escaped character never ends a pattern or a character class
+      pattern += char + (input[i + 1] ?? "");
+      i++;
+      continue;
+    }
+    if (char === "," && !inClass && !isQuantifierComma(pattern, input, i)) {
+      patterns.push(pattern);
+      pattern = "";
+      continue;
+    }
+    if (char === "[") {
+      inClass = true;
+    } else if (char === "]") {
+      inClass = false;
+    }
+    pattern += char;
+  }
+  patterns.push(pattern);
+  return patterns.map((x) => x.trim()).filter((x) => x !== "");
+}
+
+/** True for the comma of `{1,3}` or `{2,}`: digits after "{" before it, digits and "}" after it. */
+function isQuantifierComma(before: string, input: string, at: number): boolean {
+  return /\{\d+$/.test(before) && /^\d*\}/.test(input.slice(at + 1));
+}
+
+/** Compiles an exclude input. Invalid patterns are left out and reported. */
+export function parseExcludeRules(input: string): ExcludeRules {
+  const rules: ExcludeRules = { patterns: [], hasInvalid: false };
+  for (const pattern of splitPatterns(input)) {
+    try {
+      rules.patterns.push(new RegExp(pattern, "i"));
+    } catch {
+      rules.hasInvalid = true;
+    }
+  }
+  return rules;
+}

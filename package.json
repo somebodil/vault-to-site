@@ -1,0 +1,25 @@
+{
+  "name": "vault-to-site",
+  "version": "0.1.0",
+  "description": "Obsidian plugin that builds the notes you choose into a read-only website that opens from a file",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "eslint-plugin-obsidianmd": "0.6.0",
+    "obsidian": "1.14.4",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.73.0"
+  }
+}
