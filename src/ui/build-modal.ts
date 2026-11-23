@@ -1,4 +1,4 @@
-import { type App, Modal, Platform, Setting } from "obsidian";
+import { type App, Modal, normalizePath, Platform, Setting } from "obsidian";
 import { zipPath } from "../build/output.ts";
 import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
@@ -282,7 +282,8 @@ export class BuildModal extends Modal {
     contentEl.empty();
     this.setTitle("Look over the site");
     const { choice } = planSite(this.app, this.settings);
-    const place = this.settings.format === "zip" ? `the archive "${zipPath(this.settings.zip)}"` : `the folder "${this.settings.folder}"`;
+    const place =
+      this.settings.format === "zip" ? `the archive "${zipPath(normalizePath(this.settings.zip))}"` : `the folder "${normalizePath(this.settings.folder)}"`;
 
     contentEl.createEl("p", {
       cls: "vault-to-site-lead",
@@ -403,6 +404,8 @@ export class BuildModal extends Modal {
         );
     };
 
+    // A phone that turns its screen off stops the app, and the build with it
+    const awake = await keepAwake();
     try {
       const result = await buildSite(
         this.app,
@@ -438,7 +441,18 @@ export class BuildModal extends Modal {
         console.error(error);
         done("The site could not be built", [error instanceof Error ? error.message : String(error)]);
       }
+    } finally {
+      void awake?.release().catch(() => undefined);
     }
+  }
+}
+
+/** Asks the device to keep its screen on. Null where it cannot be asked or says no. */
+async function keepAwake(): Promise<WakeLockSentinel | null> {
+  try {
+    return await navigator.wakeLock.request("screen");
+  } catch {
+    return null;
   }
 }
 

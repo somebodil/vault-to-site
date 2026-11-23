@@ -57,12 +57,16 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
  * a short time without a change is taken as the end.
  */
 function settled(host: HTMLElement): Promise<void> {
-  const QUIET = 120;
+  // Formulas, code and embeds say when they are ready, and are waited for by name below. What says nothing
+  // is the block of a plugin, such as a query: a note with one is given more time without a change.
+  const QUIET = host.querySelector(".internal-embed, .mermaid, iframe, [class*='block-language-'], [class*='dataview']") === null ? 30 : 120;
   const LONGEST = 6000;
   const LONGEST_FOR_KNOWN = 4000;
   const start = Date.now();
   const isWaited = (): boolean =>
-    host.querySelector(".markdown-embed:not(.is-loaded), .math:not(.is-loaded), .block-language-dataview:empty, .block-language-dataviewjs:empty") !== null ||
+    host.querySelector(
+      ".markdown-embed:not(.is-loaded), .math:not(.is-loaded), pre > code[class*='language-']:not(.is-loaded), .block-language-dataview:empty, .block-language-dataviewjs:empty",
+    ) !== null ||
     Array.from(host.querySelectorAll(".mermaid")).some((diagram) => diagram.querySelector("svg") === null);
   return new Promise((resolve) => {
     let timer = 0;

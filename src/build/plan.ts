@@ -8,7 +8,7 @@ import { zipPath } from "./output.ts";
 
 /** The files of the vault as the choice sees them. What a build writes is not one of them. */
 export function readVault(app: App, settings: Settings): VaultFile[] {
-  const own = [zipPath(settings.zip), normalizePath(settings.folder)];
+  const own = [zipPath(normalizePath(settings.zip)), normalizePath(settings.folder)];
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];
   for (const file of app.vault.getFiles()) {

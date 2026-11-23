@@ -2,7 +2,7 @@
   "id": "vault-to-site",
   "name": "vault-to-site",
   "version": "0.1.0",
-  "minAppVersion": "1.8.7",
+  "minAppVersion": "1.12.3",
   "description": "Build the notes you choose into a read-only website that looks like your vault and opens from a file.",
   "author": "somebodil",
   "authorUrl": "https://github.com/somebodil",

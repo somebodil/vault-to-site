@@ -1,16 +1,16 @@
-import { type DataAdapter, normalizePath, requireApiVersion } from "obsidian";
+import type { DataAdapter } from "obsidian";
 import { ZipWriter } from "./zip.ts";
 
 /** A file in a site that says the plugin made it */
 export const MARKER = "vault-to-site.json";
 
-/** The version of Obsidian from which a plugin can add to the end of a file */
-const APPENDS_FROM = "1.12.3";
-
 /** How often a file is written before the build gives up */
 const WRITE_ATTEMPTS = 3;
 
-/** Where a site is written to: a folder, or one zip archive */
+/**
+ * Where a site is written to: a folder, or one zip archive. Paths are from
+ * the root of the vault and are given as Obsidian writes them (`normalizePath`).
+ */
 export interface SiteOutput {
   /** Makes the place ready. Throws when the place holds something that is not a site of the plugin. */
   prepare(): Promise<void>;
@@ -80,7 +80,7 @@ export class FolderOutput implements SiteOutput {
 
   constructor(adapter: DataAdapter, root: string) {
     this.adapter = adapter;
-    this.root = normalizePath(root);
+    this.root = root;
   }
 
   async prepare(): Promise<void> {
@@ -178,15 +178,22 @@ export class ZipOutput implements SiteOutput {
   }
 
   text(path: string, content: string): Promise<void> {
-    return this.inTurn(() => this.zip.add(path, new TextEncoder().encode(content)));
+    return this.add(path, new TextEncoder().encode(content));
   }
 
   binary(path: string, content: ArrayBuffer): Promise<void> {
-    return this.inTurn(() => this.zip.add(path, new Uint8Array(content)));
+    return this.add(path, new Uint8Array(content));
   }
 
   copy(from: string, path: string): Promise<void> {
+    // A file of the vault is read when its turn comes, so that only one of them is in memory
     return this.inTurn(async () => this.zip.add(path, new Uint8Array(await this.adapter.readBinary(from))));
+  }
+
+  /** What is in memory already is made smaller right away, next to the others, and waits in line only to be written */
+  private async add(path: string, data: Uint8Array): Promise<void> {
+    const packed = await this.zip.pack(path, data);
+    await this.inTurn(() => this.zip.put(packed));
   }
 
   async finish(): Promise<{ place: string; bytes: number }> {
@@ -207,8 +214,7 @@ export class ZipOutput implements SiteOutput {
   private async take(piece: Uint8Array): Promise<void> {
     this.pieces.push(piece);
     this.held += piece.length;
-    // Before 1.12.3 Obsidian cannot add to a file: the whole archive is then kept until the end
-    if (this.held >= this.pieceSize && requireApiVersion(APPENDS_FROM)) {
+    if (this.held >= this.pieceSize) {
       await this.flush();
     }
   }
@@ -230,7 +236,7 @@ export class ZipOutput implements SiteOutput {
         await this.adapter.writeBinary(this.path, buffer.buffer);
       };
       await checked(this.adapter, this.path, buffer.length, write, () => this.rewritten++);
-    } else if (buffer.length > 0 && requireApiVersion(APPENDS_FROM)) {
+    } else if (buffer.length > 0) {
       await this.adapter.appendBinary(this.path, buffer.buffer);
       const size = (await this.adapter.stat(this.path))?.size;
       if (size !== this.onDisk + buffer.length) {
@@ -244,6 +250,5 @@ export class ZipOutput implements SiteOutput {
 
 /** The path of an archive: as given, with `.zip` at its end */
 export function zipPath(path: string): string {
-  const normal = normalizePath(path);
-  return normal.toLowerCase().endsWith(".zip") ? normal : normal + ".zip";
+  return path.toLowerCase().endsWith(".zip") ? path : path + ".zip";
 }

@@ -112,6 +112,22 @@ describe("ZipWriter", () => {
     assert.equal(new TextDecoder().decode(files.get("text.js")?.data), text);
   });
 
+  it("takes files that were made ready side by side, in the order they are put", async () => {
+    const pieces: Uint8Array[] = [];
+    const zip = new ZipWriter(async (piece) => {
+      pieces.push(piece.slice());
+    });
+    const ready = await Promise.all([zip.pack("b.js", bytes(text)), zip.pack("a.js", bytes("short")), zip.pack("c.png", bytes(text))]);
+    for (const file of ready) {
+      await zip.put(file);
+    }
+    await zip.finish();
+    const files = read(Buffer.concat(pieces));
+    assert.deepEqual([...files.keys()], ["b.js", "a.js", "c.png"]);
+    assert.equal(new TextDecoder().decode(files.get("b.js")?.data), text);
+    assert.equal(files.get("c.png")?.method, 0);
+  });
+
   it("is an archive that other programs open", async () => {
     const zip = await archive([
       ["index.html", bytes("<!doctype html>")],

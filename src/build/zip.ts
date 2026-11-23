@@ -18,6 +18,16 @@ export type ZipSink = (piece: Uint8Array) => Promise<void>;
 /** Makes data smaller (raw deflate), or returns null where the browser cannot */
 export type Deflate = (data: Uint8Array) => Promise<Uint8Array | null>;
 
+/** A file that is ready to be added to an archive */
+export interface Packed {
+  name: Uint8Array;
+  crc: number;
+  size: number;
+  method: number;
+  /** The content as it goes into the archive */
+  body: Uint8Array;
+}
+
 interface Entry {
   name: Uint8Array;
   crc: number;
@@ -105,19 +115,27 @@ export class ZipWriter {
 
   /** Adds a file. The name is a path with `/` between its parts. */
   async add(name: string, data: Uint8Array): Promise<void> {
+    await this.put(await this.pack(name, data));
+  }
+
+  /**
+   * Makes a file ready to be added: smaller, where that helps. Several files
+   * can be made ready at the same time; they are added one after the other
+   * with `put`.
+   */
+  async pack(name: string, data: Uint8Array): Promise<Packed> {
+    const packed = isPackedAlready(name) || data.length === 0 ? null : await this.deflate(data);
+    const body = packed !== null && packed.length < data.length ? packed : data;
+    return { name: new TextEncoder().encode(name), crc: crc32(data), size: data.length, method: body === data ? STORED : DEFLATED, body };
+  }
+
+  /** Adds a file that `pack` made ready. One at a time: the next only when this one has resolved. */
+  async put(file: Packed): Promise<void> {
     if (this.entries.length >= MOST_FILES) {
       throw new Error("The site has too many files for one zip archive. Build it as a folder.");
     }
-    const packed = isPackedAlready(name) || data.length === 0 ? null : await this.deflate(data);
-    const body = packed !== null && packed.length < data.length ? packed : data;
-    const entry: Entry = {
-      name: new TextEncoder().encode(name),
-      crc: crc32(data),
-      packed: body.length,
-      size: data.length,
-      method: body === data ? STORED : DEFLATED,
-      offset: this.offset,
-    };
+    const body = file.body;
+    const entry: Entry = { name: file.name, crc: file.crc, packed: body.length, size: file.size, method: file.method, offset: this.offset };
     if (this.offset + 30 + entry.name.length + body.length > MOST_BYTES) {
       throw new Error("The site is too large for one zip archive (4 GB). Build it as a folder.");
     }
