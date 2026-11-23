@@ -70,9 +70,17 @@ export function setTick(ticks: Ticks, path: string, value: boolean): Ticks {
  * this, a note that was left out of a ticked folder would be back in the
  * site after it was renamed: its path would no longer be in the list.
  */
+/** Where a path is after a folder or file was renamed: the new path when it is the renamed thing or inside it, else the same */
+export function movedPath(path: string, from: string, to: string): string {
+  if (from === "" || !isAtOrUnder(path, from)) {
+    return path;
+  }
+  return path === from ? to : to + path.slice(from.length);
+}
+
 export function renameTicks(ticks: Ticks, from: string, to: string): Ticks {
   const isMoved = (path: string): boolean => isAtOrUnder(path, from) && from !== "";
-  const moved = (path: string): string => (path === from ? to : to + path.slice(from.length));
+  const moved = (path: string): string => movedPath(path, from, to);
   // What was decided for the new path before belongs to something that is not there any more: what moves there decides
   const isStale = (path: string): boolean => !isMoved(path) && to !== "" && isAtOrUnder(path, to);
   const follow = (paths: string[]): string[] => [...new Set(paths.filter((path) => !isStale(path)).map((path) => (isMoved(path) ? moved(path) : path)))].sort();

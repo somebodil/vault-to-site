@@ -1,6 +1,5 @@
-import { Plugin } from "obsidian";
-import { renameTicks } from "./select/ticks.ts";
-import { readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
+import { normalizePath, Plugin } from "obsidian";
+import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
 const ICON = "book-open-check";
@@ -25,12 +24,12 @@ export default class VaultToSitePlugin extends Plugin {
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: open });
     this.addRibbonIcon(ICON, "Build a site", open);
 
-    // What is ticked is kept by path. A folder or note that gets another name keeps its tick, or its lack of one.
+    // What is ticked and what was written is kept by path. A folder or file that gets another name is followed.
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
-        const ticks = renameTicks(this.config.ticks, oldPath, file.path);
-        if (JSON.stringify(ticks) !== JSON.stringify(this.config.ticks)) {
-          this.config.ticks = ticks;
+        const next = followRename(this.config, oldPath, file.path, normalizePath);
+        if (JSON.stringify(next) !== JSON.stringify(this.config)) {
+          Object.assign(this.config, next);
           void this.saveData(this.config);
         }
       }),

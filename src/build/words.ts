@@ -12,7 +12,8 @@ import type { PropertyValue } from "../site-format.ts";
  *
  * What cannot be read as a link for sure is not left as it is either: an
  * address that opens Obsidian or a file of the device is taken out wherever
- * it stands, and so are the tags of HTML, which can hold an address.
+ * it stands, and so is a tag of HTML that holds more than its name: an
+ * attribute can hold an address.
  */
 
 /** A link in the way of Markdown: `[words](target)`, with a target in angle brackets or with brackets of its own, and a title after it */
@@ -20,7 +21,10 @@ const MARKDOWN_LINK =
   /!?\[((?:\\.|[^[\]\\])*)\]\(\s*(?:<[^>\n]*>|(?:\\.|[^()\s\\]|\((?:\\.|[^()\\])*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
 /** A link by a name that is given elsewhere: `[words][name]` */
 const REFERENCE_LINK = /!?\[((?:\\.|[^[\]\\])*)\]\[[^[\]\n]*\]/g;
+/** What stands in angle brackets as a tag of HTML does */
 const HTML_TAG = /<\/?[A-Za-z][^>\n]*>/g;
+/** A tag with a name and nothing else, as `<b>` or `</script>`: it holds no address, and it is shown as the text it is */
+const BARE_TAG = /^<\/?[A-Za-z][A-Za-z0-9-]*\s*\/?>$/;
 /** An address that leads into Obsidian or to a file of the device */
 const INNER_ADDRESS = /\b(?:obsidian|app|capacitor|file):\/\/[^\s)>\]"']*/gi;
 
@@ -69,7 +73,20 @@ export function shownWords(text: string): string {
     }
     shown = next;
   }
-  return shown.replace(HTML_TAG, "").replace(INNER_ADDRESS, "");
+  // A tag that is taken out takes its end with it: `<a href="...">x</a>` is shown as `x`
+  const taken = new Set<string>();
+  const nameOf = (tag: string): string => (/[A-Za-z][A-Za-z0-9-]*/.exec(tag)?.[0] ?? "").toLowerCase();
+  shown = shown.replace(HTML_TAG, (tag) => {
+    if (BARE_TAG.test(tag)) {
+      return tag;
+    }
+    taken.add(nameOf(tag));
+    return "";
+  });
+  if (taken.size > 0) {
+    shown = shown.replace(HTML_TAG, (tag) => (tag.startsWith("</") && taken.has(nameOf(tag)) ? "" : tag));
+  }
+  return shown.replace(INNER_ADDRESS, "");
 }
 
 /** The same for the value of a property, whatever it holds */

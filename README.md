@@ -22,10 +22,12 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 
 Under **Written as** you choose what a build writes, and where, from the root of the vault:
 
-- **Zip archive** (to begin with, `vault-to-site.zip`): one file. The archive of the build before gives way only when the new one is whole: a build that is stopped or fails leaves it as it was.
+- **Zip archive** (to begin with, `vault-to-site.zip`): one file. The archive of the build before gives way only when the new one is whole: a build that is stopped or fails leaves it as it was. A file with that name that this plugin did not write is not written over: the build is refused, and you choose another name or remove the file.
 - **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it that was never a site of this plugin is refused. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
 
-What a build has written is never part of a site, also after you give the archive or the folder another name. If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
+What a build has written is never part of a site, also after you give the archive or the folder another name. An archive or a folder that you rename or move away is put aside: the next build writes a new one where the setting says, and leaves the one you put aside alone. When you rename a folder above it, the setting follows.
+
+If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
 
 ## What the site has
 
@@ -73,7 +75,7 @@ A note that is not part of the site leaves nothing in it:
 - **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link. Where the link led is removed, and the search finds only the words that show.
 - **Its pictures stay out with it,** unless a note of the site uses them too.
 
-The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. A style rule of a plugin that names a folder or a note of the vault is not copied.
+The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. A link written as HTML in a note (`<a href="...">`) keeps its address only when it leads to the web, to a place on its own page, or to a file of the site. A style rule of a plugin that names a folder or a note of the vault is not copied.
 
 The step **Look over** lists the links and embeds that are cut this way.
 
@@ -89,7 +91,7 @@ The folder of the site is ready for it: every address in it is relative, and it 
 
 ## The style sheets
 
-The site looks like your Obsidian because a build copies the style sheets that your Obsidian has loaded: those of the app, of your theme, of your snippets, and of your plugins, with the fonts they use. They are copied on your device at the time of the build. None of them is part of this plugin.
+The site looks like your Obsidian because a build copies the style sheets that your Obsidian has loaded: those of the app, of your theme, of your snippets, and of your plugins, also the ones a plugin makes with script, with the fonts they use. They are copied on your device at the time of the build. None of them is part of this plugin.
 
 Those style sheets belong to their authors, and the ones of the app to Obsidian. Other plugins that publish notes do the same, but there is no written permission for it. Keep that in mind before you put a site where everyone can see it.
 

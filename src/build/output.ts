@@ -223,11 +223,15 @@ export class ZipOutput implements SiteOutput {
   private broken: Error | null = null;
   /** An archive is written in pieces from this size on */
   private readonly pieceSize: number;
+  /** True when a build has written to this path before: what is there may give way */
+  private readonly mayReplace: boolean;
 
-  constructor(adapter: DataAdapter, path: string, pieceSize = 32 * 1024 * 1024) {
+  /** @param mayReplace true when the file at the path, if there is one, was written by a build of this plugin */
+  constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024) {
     this.adapter = adapter;
     this.path = zipPath(path);
     this.part = this.path + ".part";
+    this.mayReplace = mayReplace;
     this.pieceSize = pieceSize;
     this.zip = new ZipWriter((piece) => this.take(piece));
   }
@@ -236,8 +240,13 @@ export class ZipOutput implements SiteOutput {
     if (isVaultItself(this.path.slice(0, -".zip".length))) {
       throw new Error("The archive of the site needs a name.");
     }
-    if ((await this.adapter.stat(this.path))?.type === "folder") {
+    const there = await this.adapter.stat(this.path);
+    if (there?.type === "folder") {
       throw new Error(`"${this.path}" is a folder. Choose another name for the archive.`);
+    }
+    if (there !== null && !this.mayReplace) {
+      // An archive of this name that a build did not write is somebody's file, as a backup
+      throw new Error(`"${this.path}" is a file that this plugin did not write. Choose another name for the archive, or remove the file.`);
     }
     await new Folders(this.adapter).make(folderOf(this.path));
     await this.removePart();
@@ -260,14 +269,33 @@ export class ZipOutput implements SiteOutput {
     await this.inTurn(async () => {
       await this.zip.finish();
       await this.flush();
-      // Only now does the archive of the build before give way
-      if (await this.adapter.exists(this.path)) {
-        await this.adapter.remove(this.path);
+      // Only now does the archive of the build before give way. It is set aside, not removed, until the
+      // new one has its name: should that fail, the old one is put back.
+      const before = this.path + ".old";
+      const hadOne = await this.adapter.exists(this.path);
+      if (hadOne) {
+        if (await this.adapter.exists(before)) {
+          await this.adapter.remove(before);
+        }
+        await this.adapter.rename(this.path, before);
       }
-      await this.adapter.rename(this.part, this.path);
-      const size = (await this.adapter.stat(this.path))?.size;
-      if (size !== this.onDisk) {
-        throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
+      try {
+        await this.adapter.rename(this.part, this.path);
+        const size = (await this.adapter.stat(this.path))?.size;
+        if (size !== this.onDisk) {
+          throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
+        }
+      } catch (error) {
+        if (hadOne) {
+          if (await this.adapter.exists(this.path)) {
+            await this.adapter.remove(this.path);
+          }
+          await this.adapter.rename(before, this.path);
+        }
+        throw error;
+      }
+      if (hadOne) {
+        await this.adapter.remove(before);
       }
     });
     return { place: this.path, bytes: this.onDisk };

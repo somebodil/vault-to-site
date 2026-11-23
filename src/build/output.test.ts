@@ -77,7 +77,13 @@ class MemoryAdapter {
     return Promise.resolve();
   }
 
+  /** When set, the renames it says yes to fail, as when a file is held by another program */
+  failRename: ((from: string, to: string) => boolean) | null = null;
+
   rename(from: string, to: string): Promise<void> {
+    if (this.failRename?.(from, to) === true) {
+      return Promise.reject(new Error("the file is busy"));
+    }
     const file = this.files.get(from);
     if (file === undefined) {
       return Promise.reject(new Error("no such file: " + from));
@@ -212,7 +218,7 @@ describe("ZipOutput", () => {
   it("writes one archive with everything in it", async () => {
     const adapter = new MemoryAdapter();
     adapter.files.set("Attachments/pic.png", new TextEncoder().encode("picture"));
-    const output = new ZipOutput(adapter.asAdapter, "out/site");
+    const output = new ZipOutput(adapter.asAdapter, "out/site", false);
     await output.prepare();
     await output.text("index.html", "<!doctype html>");
     await output.binary("data/n/a.js", new TextEncoder().encode(long).buffer);
@@ -234,7 +240,7 @@ describe("ZipOutput", () => {
 
   it("keeps every file whole when many are added at the same time", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     const texts = Array.from({ length: 60 }, (_, i) => `note ${String(i)} ` + "x".repeat(i * 37));
     await Promise.all(texts.map((text, i) => output.text(`data/n/${String(i)}.js`, text)));
@@ -248,7 +254,7 @@ describe("ZipOutput", () => {
 
   it("writes a large archive in pieces, and it is the same archive", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", 4000);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", false, 4000);
     await output.prepare();
     // Text that does not get much smaller, so that the archive really grows past the size of a piece
     const noise = (seed: number): string => {
@@ -273,7 +279,7 @@ describe("ZipOutput", () => {
   it("writes over the archive of the build before", async () => {
     const adapter = new MemoryAdapter();
     adapter.files.set("site.zip", new Uint8Array(50_000));
-    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     await output.text("index.html", "new");
     await output.finish();
@@ -283,7 +289,7 @@ describe("ZipOutput", () => {
   it("writes the archive again when it was left empty", async () => {
     const adapter = new MemoryAdapter();
     adapter.emptyOnce.add("site.zip.part");
-    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     await output.text("index.html", "content");
     await output.finish();
@@ -294,15 +300,15 @@ describe("ZipOutput", () => {
   it("refuses a name that is a folder, and no name at all", async () => {
     const adapter = new MemoryAdapter();
     adapter.folders.add("Notes.zip");
-    await assert.rejects(new ZipOutput(adapter.asAdapter, "Notes.zip").prepare(), /is a folder/);
-    await assert.rejects(new ZipOutput(adapter.asAdapter, "").prepare(), /needs a name/);
+    await assert.rejects(new ZipOutput(adapter.asAdapter, "Notes.zip", true).prepare(), /is a folder/);
+    await assert.rejects(new ZipOutput(adapter.asAdapter, "", true).prepare(), /needs a name/);
   });
 
   it("keeps the archive of the build before until the new one is whole", async () => {
     const adapter = new MemoryAdapter();
     const before = new TextEncoder().encode("the archive of before");
     adapter.files.set("site.zip", before);
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", 1000);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, 1000);
     await output.prepare();
     await output.text("data/n/a.js", "x".repeat(50));
     await output.binary("assets/noise.png", new Uint8Array(5000).map((_, i) => (i * 7919) & 0xff).buffer);
@@ -315,7 +321,7 @@ describe("ZipOutput", () => {
 
   it("adds nothing after a failure, and does not end as an archive", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     await output.text("index.html", "first");
     await assert.rejects(output.copy("missing.png", "assets/missing.png"), /no such file/);
@@ -326,10 +332,33 @@ describe("ZipOutput", () => {
     assert.equal(adapter.files.has("site.zip.part"), false);
   });
 
+  it("does not write over a file that no build of the plugin wrote", async () => {
+    const adapter = new MemoryAdapter();
+    const backup = new TextEncoder().encode("a backup of the person");
+    adapter.files.set("Backups/vault.zip", backup);
+    adapter.folders.add("Backups");
+    await assert.rejects(new ZipOutput(adapter.asAdapter, "Backups/vault", false).prepare(), /did not write/);
+    assert.deepEqual(adapter.files.get("Backups/vault.zip"), backup);
+  });
+
+  it("puts the archive of before back when the new one cannot get its name", async () => {
+    const adapter = new MemoryAdapter();
+    const before = new TextEncoder().encode("the archive of before");
+    adapter.files.set("site.zip", before);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    await output.prepare();
+    await output.text("index.html", "new");
+    adapter.failRename = (from) => from === "site.zip.part";
+    await assert.rejects(output.finish(), /busy/);
+    await output.abort();
+    assert.deepEqual(adapter.files.get("site.zip"), before);
+    assert.deepEqual([...adapter.files.keys()], ["site.zip"]);
+  });
+
   it("takes away what a build that broke off left behind", async () => {
     const adapter = new MemoryAdapter();
     adapter.files.set("site.zip.part", new Uint8Array(100));
-    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     assert.equal(adapter.files.has("site.zip.part"), false);
   });

@@ -1,5 +1,6 @@
+import { zipPath } from "./build/output.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
-import { NO_TICKS, type Ticks } from "./select/ticks.ts";
+import { movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
 
 /** A site is written as one zip archive, or as a folder */
 export type Format = "zip" | "folder";
@@ -40,6 +41,39 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Where a build with these settings writes, as it is written in the setting */
 export function outputOf(settings: Settings): string {
   return settings.format === "zip" ? settings.zip : settings.folder;
+}
+
+/**
+ * The settings after a folder or file of the vault got another name.
+ *
+ * - A tick stays with what it was set on.
+ * - What a build wrote stays the plugin's under its new name.
+ * - The place of the next build moves only with a folder above it. An
+ *   archive or a site folder that was itself renamed or moved was put aside:
+ *   the next build writes a new one where the setting says, and does not
+ *   write over the one that was put aside.
+ *
+ * The names a build gives its own archive on the way (`.part` while it is
+ * written, `.old` while it is replaced) are not a rename by the user, and
+ * change nothing.
+ *
+ * @param normal makes a path as it is written in a setting into the form the vault has
+ */
+export function followRename(settings: Settings, from: string, to: string, normal: (path: string) => string = (path) => path): Settings {
+  if (to === `${from}.old` || from.endsWith(".old") || from.endsWith(".part") || to.endsWith(".part")) {
+    return settings;
+  }
+  const moved = (path: string): string => movedPath(path, from, to);
+  const under = (path: string): string => (path === from ? path : moved(path));
+  const zip = zipPath(normal(settings.zip));
+  const folder = normal(settings.folder);
+  return {
+    ...settings,
+    ticks: renameTicks(settings.ticks, from, to),
+    written: [...new Set(settings.written.map(moved))],
+    zip: under(zip) === zip ? settings.zip : under(zip),
+    folder: under(folder) === folder ? settings.folder : under(folder),
+  };
 }
 
 /** Reads what was saved, and takes the default for what is missing or of the wrong kind */

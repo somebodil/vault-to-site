@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isAtOrUnder, missingTicks, NO_TICKS, parentOf, renameTicks, setTick, ticker, type Ticks } from "./ticks.ts";
+import { isAtOrUnder, missingTicks, movedPath, NO_TICKS, parentOf, renameTicks, setTick, ticker, type Ticks } from "./ticks.ts";
 
 describe("parentOf", () => {
   it("is the folder a path is in, and the root for a top-level path", () => {
@@ -112,3 +112,11 @@ describe("missingTicks", () => {
   });
 });
 
+describe("movedPath", () => {
+  it("is the new path for what was renamed and for what is inside it, else the same", () => {
+    assert.equal(movedPath("site.zip", "site.zip", "old/site.zip"), "old/site.zip");
+    assert.equal(movedPath("out/site.zip", "out", "public"), "public/site.zip");
+    assert.equal(movedPath("outside/site.zip", "out", "public"), "outside/site.zip");
+    assert.equal(movedPath("a.md", "", "x"), "a.md");
+  });
+});

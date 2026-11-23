@@ -165,6 +165,7 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener");
   });
+  dropOtherAddresses(host);
   host.querySelectorAll("input[type=checkbox]").forEach((box) => box.setAttribute("disabled", ""));
   // A heading carries its text as it was written, with the target of a link in it
   host.querySelectorAll("[data-heading]").forEach((heading) => {
@@ -199,6 +200,43 @@ function dropInnerAddresses(host: HTMLElement): void {
       if (isOne ? INNER_AT_START.test(attribute.value) || attribute.value.includes("/_capacitor_file_/") : INNER_INSIDE.test(attribute.value)) {
         el.removeAttribute(attribute.name);
       }
+    }
+  });
+}
+
+/** An address with a scheme, as `https:` or `mailto:`, that does not lead into Obsidian, to a file of the device, or to script */
+const OUTER_ADDRESS = /^\s*(?!(?:app|capacitor|file|obsidian|javascript|vbscript|data|blob):)[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * Takes the address from every link that is not one of the site and does not
+ * lead out of it. The links that Obsidian knows as links between notes have
+ * their addresses by now. What is left with an address without a scheme is a
+ * link written as HTML, as `<a href="Folder/Note.md">`: a path of the vault,
+ * which may be the path of a note that is kept out.
+ */
+function dropOtherAddresses(host: HTMLElement): void {
+  const isGood = (address: string, own: string[]): boolean => own.some((start) => address.startsWith(start)) || OUTER_ADDRESS.test(address);
+  host.querySelectorAll("a[href]").forEach((link) => {
+    if (!isGood(link.getAttribute("href") ?? "", ["#", "assets/"])) {
+      for (const name of ["href", "aria-label", "title"]) {
+        link.removeAttribute(name);
+      }
+      link.classList.add("is-unresolved");
+    }
+  });
+  host.querySelectorAll("iframe[src], [poster]").forEach((el) => {
+    for (const name of ["src", "poster"]) {
+      const address = el.getAttribute(name);
+      if (address !== null && !(el.tagName !== "IFRAME" && name === "src") && !isGood(address, ["assets/"])) {
+        el.removeAttribute(name);
+      }
+    }
+  });
+  // A list of pictures of several sizes: each of them has to be good
+  host.querySelectorAll("[srcset]").forEach((el) => {
+    const addresses = (el.getAttribute("srcset") ?? "").split(",").map((part) => part.trim().split(/\s+/)[0] ?? "");
+    if (!addresses.every((address) => isGood(address, ["assets/"]) || address.startsWith("data:"))) {
+      el.removeAttribute("srcset");
     }
   });
 }

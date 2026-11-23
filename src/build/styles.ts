@@ -39,7 +39,7 @@ export async function captureStyles(doc: Document): Promise<CapturedStyles> {
     const base = sheet.href ?? doc.baseURI;
     let text = "";
     for (const rule of Array.from(rules)) {
-      text += textOf(rule) + "\n";
+      text += (rule instanceof CSSFontFaceRule ? withWholeWeightRange(textOf(rule)) : textOf(rule)) + "\n";
     }
     parts.push(
       text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
@@ -57,7 +57,9 @@ export async function captureStyles(doc: Document): Promise<CapturedStyles> {
         }
         const local = localAddress(address, base, doc);
         if (local === null) {
-          return whole;
+          // An address of the web stays. One that leads into Obsidian or to a file of the device would
+          // be dead in the site, and it holds the path of the vault on the device.
+          return address === "" || /^\s*(https?:|data:|about:|#)/i.test(address) ? whole : 'url("about:invalid")';
         }
         let name = wanted.get(local);
         if (name === undefined) {
@@ -92,6 +94,70 @@ function allSheets(doc: Document): CSSStyleSheet[] {
   return [...Array.from(doc.styleSheets), ...doc.adoptedStyleSheets];
 }
 
+/**
+ * The range of weights a font file can be drawn in, when it is a font with a
+ * weight that varies. Null for a font of one weight, and for what cannot be read.
+ *
+ * Read from the table `fvar` of the file: the axis `wght`, with its least and its greatest value.
+ */
+export function weightRangeOf(bytes: ArrayBuffer): [least: number, greatest: number] | null {
+  const view = new DataView(bytes);
+  try {
+    const tables = view.getUint16(4);
+    for (let i = 0; i < tables; i++) {
+      const record = 12 + i * 16;
+      if (view.getUint32(record) !== 0x66766172) {
+        continue; // not "fvar"
+      }
+      const table = view.getUint32(record + 8);
+      const axes = table + view.getUint16(table + 4);
+      const count = view.getUint16(table + 8);
+      const size = view.getUint16(table + 10);
+      for (let axis = 0; axis < count; axis++) {
+        const at = axes + axis * size;
+        if (view.getUint32(at) === 0x77676874) {
+          // "wght": numbers with 16 bits after the point
+          const least = view.getInt32(at + 4) / 65536;
+          const greatest = view.getInt32(at + 12) / 65536;
+          return greatest > least ? [Math.round(least), Math.round(greatest)] : null;
+        }
+      }
+    }
+  } catch {
+    // Not a font this reads
+  }
+  return null;
+}
+
+/**
+ * A rule for a font whose file can be drawn in a range of weights, but which
+ * names one weight only, gets the whole range.
+ *
+ * With one weight named, a browser has to make bold itself, and not every
+ * browser does that for such a font: the site would show bold text on one
+ * device and none on another. With the range, bold is drawn by the font.
+ */
+function withWholeWeightRange(rule: string): string {
+  const data = /url\(\s*["']?(data:(?:font|application)\/[^"')]+)["']?\s*\)/i.exec(rule);
+  const file = data?.[1] === undefined ? null : fileOfData(data[1]);
+  const range = file === null ? null : weightRangeOf(file.bytes);
+  if (range === null) {
+    return rule;
+  }
+  const weight = `font-weight: ${String(range[0])} ${String(range[1])};`;
+  // The descriptor is before the font itself in the text of the rule or after it; a rule without one gets it at its end
+  const named = /font-weight:\s*[^;}]*;?/i;
+  const head = rule.slice(0, data?.index ?? 0);
+  const tail = rule.slice((data?.index ?? 0) + (data?.[0].length ?? 0));
+  if (named.test(head)) {
+    return head.replace(named, weight) + (data?.[0] ?? "") + tail;
+  }
+  if (named.test(tail)) {
+    return head + (data?.[0] ?? "") + tail.replace(named, weight);
+  }
+  return rule.replace(/\}\s*$/, ` ${weight} }`);
+}
+
 /** From this length on, a file that is written into a sheet is taken out of it */
 const LONG_DATA = 20_000;
 const DATA_KINDS: Record<string, string> = {
@@ -119,6 +185,18 @@ export function fileOfData(address: string): { name: string; bytes: ArrayBuffer 
   if (address.length < LONG_DATA) {
     return null;
   }
+  if (lastData?.address === address) {
+    return lastData.file;
+  }
+  const file = decodeData(address);
+  lastData = file === null ? null : { address, file };
+  return file;
+}
+
+/** The file that was made last: the rule of a font is looked at twice, and a font of megabytes is decoded once */
+let lastData: { address: string; file: { name: string; bytes: ArrayBuffer } } | null = null;
+
+function decodeData(address: string): { name: string; bytes: ArrayBuffer } | null {
   const comma = address.indexOf(",");
   const head = comma === -1 ? "" : address.slice(5, comma).toLowerCase();
   const kind = DATA_KINDS[head.split(";")[0] ?? ""];
@@ -141,10 +219,12 @@ export function fileOfData(address: string): { name: string; bytes: ArrayBuffer 
 
 /** A selector that picks an element by a path of the vault, as plugins write them to hide or to mark a folder */
 const NAMES_A_PATH = /\[\s*data-(path|href|file|tooltip)/i;
+/** The same by an attribute that every element can have, when what it is compared with reads like a path: letters, then a slash, or `.md` */
+const COMPARES_A_PATH = /\[\s*(?:src|alt|title|aria-label|href)\s*[~|^$*]?=\s*["']?(?![a-z][a-z0-9+.-]*:|#|\/\/)(?:[^"'\]]*[\p{L}\p{N}][^"'\]]*\/|[^"'\]]*\.md\b)/iu;
 
 function namesPath(rule: CSSRule): boolean {
   const selector = (rule as { selectorText?: unknown }).selectorText;
-  if (typeof selector === "string" && NAMES_A_PATH.test(selector)) {
+  if (typeof selector === "string" && (NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector))) {
     return true;
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
@@ -171,8 +251,12 @@ function textOf(rule: CSSRule): string {
 
 /** The full address of a file that Obsidian serves itself, or null for what is inline or on the web */
 function localAddress(address: string, base: string, doc: Document): string | null {
-  if (address === "" || address.startsWith("data:") || address.startsWith("blob:") || address.startsWith("#")) {
+  if (address === "" || address.startsWith("data:") || address.startsWith("#")) {
     return null;
+  }
+  if (address.startsWith("blob:")) {
+    // Made by the page itself, as by a plugin that loads a font: the page can read it
+    return address;
   }
   try {
     const url = new URL(address, base);
@@ -246,9 +330,10 @@ export async function captureScriptFonts(doc: Document, adapter: DataAdapter, fo
       resources.push({ name, bytes: await adapter.readBinary(path) });
     }
     const family = face.family.replace(/^["']|["']$/g, "").replace(/["\\]/g, "");
+    const range = weightRangeOf(resources.find((resource) => resource.name === name)?.bytes ?? new ArrayBuffer(0));
     css +=
       `@font-face { font-family: "${family}"; src: url("${name}") format("${FONT_FORMATS[extensionOf(path)] ?? "truetype"}"); ` +
-      `font-weight: ${face.weight}; font-style: ${face.style}; font-stretch: ${face.stretch}; unicode-range: ${face.unicodeRange}; font-display: swap; }\n`;
+      `font-weight: ${range === null ? face.weight : `${String(range[0])} ${String(range[1])}`}; font-style: ${face.style}; font-stretch: ${face.stretch}; unicode-range: ${face.unicodeRange}; font-display: swap; }\n`;
   }
   return { css, resources };
 }

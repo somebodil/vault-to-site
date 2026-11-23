@@ -12,7 +12,7 @@ import {
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
-import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
+import { FolderOutput, MARKER, type SiteOutput, ZipOutput, zipPath } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { renderNote, resourceMap, type RenderContext } from "./render.ts";
 import { captureScriptFonts, captureStyles } from "./styles.ts";
@@ -67,12 +67,14 @@ let isBuilding = false;
  * of Obsidian, the files the notes use and the script that shows it all.
  *
  * @param reviewed the sign of the choice that was looked over (`signatureOf`). The build is not done when the vault has changed since.
+ * @param claim called with the place the site is written to, before anything is written there: from then on the place is the plugin's
  */
 export async function buildSite(
   app: App,
   settings: Settings,
   version: string,
   reviewed: string,
+  claim: (place: string) => Promise<void>,
   progress: Progress,
   stop: { now: boolean },
 ): Promise<BuildResult> {
@@ -81,13 +83,21 @@ export async function buildSite(
   }
   isBuilding = true;
   try {
-    return await build(app, settings, version, reviewed, progress, stop);
+    return await build(app, settings, version, reviewed, claim, progress, stop);
   } finally {
     isBuilding = false;
   }
 }
 
-async function build(app: App, settings: Settings, version: string, reviewed: string, progress: Progress, stop: { now: boolean }): Promise<BuildResult> {
+async function build(
+  app: App,
+  settings: Settings,
+  version: string,
+  reviewed: string,
+  claim: (place: string) => Promise<void>,
+  progress: Progress,
+  stop: { now: boolean },
+): Promise<BuildResult> {
   const start = Date.now();
   const { choice } = planSite(app, settings);
   if (signatureOf(choice) !== reviewed) {
@@ -107,11 +117,12 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
     }),
   );
 
+  const place = settings.format === "zip" ? zipPath(normalizePath(settings.zip)) : normalizePath(settings.folder);
   const output: SiteOutput =
-    settings.format === "zip"
-      ? new ZipOutput(app.vault.adapter, normalizePath(settings.zip))
-      : new FolderOutput(app.vault.adapter, normalizePath(settings.folder));
+    settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place);
   await output.prepare();
+  // Before the first file: what a build has started to write is the plugin's, also when the build is stopped
+  await claim(place);
 
   const total = choice.notes.length + choice.files.length + 1;
   let done = 0;

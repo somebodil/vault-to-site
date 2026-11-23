@@ -13,7 +13,7 @@ const UNDRAWN = new Set(["canvas", "base"]);
 export function readVault(app: App, settings: Settings): VaultFile[] {
   const archive = zipPath(normalizePath(settings.zip));
   // The archive while it is written has another name, and one that broke off may still lie there
-  const own = [archive, archive + ".part", normalizePath(settings.folder), ...settings.written.map((path) => normalizePath(path))];
+  const own = [archive, archive + ".part", archive + ".old", normalizePath(settings.folder), ...settings.written.map((path) => normalizePath(path))];
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];
   for (const file of app.vault.getFiles()) {

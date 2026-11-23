@@ -442,6 +442,13 @@ export class BuildModal extends Modal {
         this.settings,
         this.host.version,
         reviewed,
+        async (place) => {
+          // What a build writes is never content of a later site, also after the name in the setting has changed
+          if (!this.settings.written.includes(place)) {
+            this.settings.written = [...this.settings.written, place];
+            await this.host.save();
+          }
+        },
         (finished, total, what) => {
           bar.max = total;
           bar.value = finished;
@@ -455,12 +462,6 @@ export class BuildModal extends Modal {
           ? `The site is the archive "${result.place}" in the vault. Unpack it and open index.html with a browser.`
           : `The site is the folder "${result.place}" in the vault. Open index.html in it with a browser.`,
       ];
-      // What a build wrote is never content of a later site, also after the name in the setting has changed
-      if (!this.settings.written.includes(result.place)) {
-        this.change((settings) => {
-          settings.written = [...settings.written, result.place];
-        });
-      }
       if (result.unfinished.length > 0) {
         lines.push(`${count(result.unfinished.length, "note")} had a part that did not arrive in time, and went in without it: ${result.unfinished.join(", ")}`);
       }

@@ -57,6 +57,12 @@ describe("shownWords", () => {
     }
   });
 
+  it("shows a tag that holds only its name as the text it is", () => {
+    assert.equal(shownWords("<script>window.x=1</script>"), "<script>window.x=1</script>");
+    assert.equal(shownWords("a <b>bold</b> word<br/>"), "a <b>bold</b> word<br/>");
+    assert.equal(shownWords('<b>kept</b> <a href="Private/Secret.md">x</a> <span data-at="Private/x">y</span>'), "<b>kept</b> x y");
+  });
+
   it("leaves text without links as it is", () => {
     assert.equal(shownWords("a [b] c (d) [[ e"), "a [b] c (d) [[ e");
     assert.equal(shownWords("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");
