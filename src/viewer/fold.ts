@@ -4,9 +4,15 @@ import { el } from "./dom.ts";
 const FOLDED = "v2s-folded";
 const HEADINGS = new Set(["H1", "H2", "H3", "H4", "H5", "H6"]);
 
-/** The level of a heading element, or 0 for anything else */
-function levelOf(node: Element): number {
-  return HEADINGS.has(node.tagName) ? Number(node.tagName.charAt(1)) : 0;
+/** The heading a block of a note is, or null for a block of another kind. A block is a `div` around what it holds. */
+function headingOf(block: Element): Element | null {
+  const inner = block.firstElementChild;
+  return inner !== null && HEADINGS.has(inner.tagName) ? inner : null;
+}
+
+/** The level of a heading element, or 0 for no heading */
+function levelOf(heading: Element | null): number {
+  return heading === null ? 0 : Number(heading.tagName.charAt(1));
 }
 
 /**
@@ -37,13 +43,19 @@ export function hiddenBlocks(blocks: readonly { level: number; isFolded: boolean
 export function addFolding(sizer: HTMLElement, triangle: string): void {
   const apply = (): void => {
     const blocks = Array.from(sizer.children);
-    const hidden = hiddenBlocks(blocks.map((block) => ({ level: levelOf(block), isFolded: block.classList.contains("is-collapsed") })));
+    const hidden = hiddenBlocks(
+      blocks.map((block) => {
+        const heading = headingOf(block);
+        return { level: levelOf(heading), isFolded: heading?.classList.contains("is-collapsed") === true };
+      }),
+    );
     for (const [at, block] of blocks.entries()) {
       block.classList.toggle(FOLDED, hidden[at] === true);
     }
   };
-  for (const heading of Array.from(sizer.children)) {
-    if (levelOf(heading) === 0) {
+  for (const block of Array.from(sizer.children)) {
+    const heading = headingOf(block);
+    if (heading === null) {
       continue;
     }
     const indicator = el("div", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } });

@@ -8,6 +8,11 @@ export interface CapturedStyles {
   resources: { name: string; bytes: ArrayBuffer }[];
 }
 
+/**
+ * What stands in the place of an address that is taken out of a style. It gives nothing, and a browser
+ * does not ask anything for it or say that it failed.
+ */
+export const EMPTY_URL = 'url("data:,")';
 const URL_IN_CSS = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
 
 /**
@@ -20,56 +25,82 @@ const URL_IN_CSS = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
  * A sheet points to fonts and pictures by addresses that only work inside
  * Obsidian. Those are fetched and written next to the sheet.
  */
-export async function captureStyles(doc: Document): Promise<CapturedStyles> {
+export async function captureStyles(doc: Document, namesKeptOut: (text: string) => boolean = () => false): Promise<CapturedStyles> {
   const parts: string[] = [];
+  /** The sheets that are taken from the web as they are. They have to stand before every rule. */
+  const imports: string[] = [];
   const wanted = new Map<string, string>();
   const resources: CapturedStyles["resources"] = [];
   const inlined = new Set<string>();
 
-  // The sheets of the page, and after them the sheets that plugins make with script: those are not among
-  // the sheets of the page, and they come later when the browser decides which rule holds
-  for (const sheet of allSheets(doc)) {
+  /** The rules of a sheet as text, with every address in them made one of the site, or null for a sheet that cannot be read */
+  const textOfSheet = (sheet: CSSStyleSheet, depth: number): string | null => {
     let rules: CSSRuleList;
     try {
       rules = sheet.cssRules;
     } catch {
-      // A sheet from another site cannot be read. It is left out.
-      continue;
+      // A sheet from another site cannot be read
+      return null;
     }
     const base = sheet.href ?? doc.baseURI;
     let text = "";
     for (const rule of Array.from(rules)) {
-      text += (rule instanceof CSSFontFaceRule ? withWholeWeightRange(textOf(rule)) : textOf(rule)) + "\n";
+      if (rule instanceof CSSImportRule) {
+        // All sheets become one, and a sheet can only take in another at its very start. So a sheet of
+        // the web is taken in at the start of the one, and a sheet that Obsidian serves is written out here.
+        const inner = depth < 8 ? textOfSheet(rule.styleSheet as CSSStyleSheet, depth + 1) : null;
+        if (localAddress(rule.href, base, doc) === null) {
+          const address = absoluteWebAddress(rule.href, base);
+          if (address !== null) {
+            imports.push(`@import url("${address}")${rule.media.mediaText === "" ? "" : " " + rule.media.mediaText};`);
+          }
+        } else if (inner !== null) {
+          text += (rule.media.mediaText === "" ? inner : `@media ${rule.media.mediaText} {\n${inner}}`) + "\n";
+        }
+        continue;
+      }
+      text += (rule instanceof CSSFontFaceRule ? withWholeWeightRange(textOf(rule, namesKeptOut)) : textOf(rule, namesKeptOut)) + "\n";
     }
-    parts.push(
-      text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
-        const address = (double ?? single ?? bare ?? "").trim();
-        if (address.startsWith("data:")) {
-          const file = fileOfData(address);
-          if (file === null) {
-            return whole;
-          }
-          if (!inlined.has(file.name)) {
-            inlined.add(file.name);
-            resources.push(file);
-          }
-          return `url("${file.name}")`;
+    return text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
+      const address = (double ?? single ?? bare ?? "").trim();
+      if (address.startsWith("data:")) {
+        const file = fileOfData(address);
+        if (file === null) {
+          return whole;
         }
-        const local = localAddress(address, base, doc);
-        if (local === null) {
-          // An address of the web stays. One that leads into Obsidian or to a file of the device would
-          // be dead in the site, and it holds the path of the vault on the device.
-          return address === "" || /^\s*(https?:|data:|about:|#)/i.test(address) ? whole : 'url("about:invalid")';
+        if (!inlined.has(file.name)) {
+          inlined.add(file.name);
+          resources.push(file);
         }
-        let name = wanted.get(local);
-        if (name === undefined) {
-          const extension = extensionOf(new URL(local).pathname);
-          name = "res/" + hashOf(local) + (extension === "" ? "" : "." + extension);
-          wanted.set(local, name);
-        }
-        return `url("${name}")`;
-      }),
-    );
+        return `url("${file.name}")`;
+      }
+      // An address this function has written already, in a sheet that was taken into this one
+      if (address.startsWith("res/") && (inlined.has(address) || [...wanted.values()].includes(address))) {
+        return whole;
+      }
+      const local = localAddress(address, base, doc);
+      if (local === null) {
+        // An address of the web stays. One that leads into Obsidian or to a file of the device would
+        // be dead in the site, and it holds the path of the vault on the device.
+        return address === "" || /^\s*(https?:|data:|about:|#)/i.test(address) ? whole : EMPTY_URL;
+      }
+      let name = wanted.get(local);
+      if (name === undefined) {
+        const extension = extensionOf(new URL(local).pathname);
+        name = "res/" + hashOf(local) + (extension === "" ? "" : "." + extension);
+        wanted.set(local, name);
+      }
+      return `url("${name}")`;
+    });
+  };
+
+  // The sheets of the page, and after them the sheets that plugins make with script: those are not among
+  // the sheets of the page, and they come later when the browser decides which rule holds
+  for (const sheet of allSheets(doc)) {
+    const text = textOfSheet(sheet, 0);
+    if (text !== null) {
+      parts.push(text);
+    }
   }
 
   for (const [address, name] of wanted) {
@@ -87,7 +118,17 @@ export async function captureStyles(doc: Document): Promise<CapturedStyles> {
       // Without the file the site falls back to another font
     }
   }
-  return { css: parts.join("\n"), resources };
+  return { css: [...new Set(imports), ...parts].join("\n"), resources };
+}
+
+/** The whole address of a sheet of the web, or null for what is not of the web */
+function absoluteWebAddress(address: string, base: string): string | null {
+  try {
+    const url = new URL(address, base);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href.replace(/["\\\n]/g, encodeURIComponent) : null;
+  } catch {
+    return null;
+  }
 }
 
 function allSheets(doc: Document): CSSStyleSheet[] {
@@ -222,13 +263,33 @@ const NAMES_A_PATH = /\[\s*data-(path|href|file|tooltip)/i;
 /** The same by an attribute that every element can have, when what it is compared with reads like a path: letters, then a slash, or `.md` */
 const COMPARES_A_PATH = /\[\s*(?:src|alt|title|aria-label|href)\s*[~|^$*]?=\s*["']?(?![a-z][a-z0-9+.-]*:|#|\/\/)(?:[^"'\]]*[\p{L}\p{N}][^"'\]]*\/|[^"'\]]*\.md\b)/iu;
 
-function namesPath(rule: CSSRule): boolean {
+/** What a selector compares an attribute with, when it is written in quotes: `[aria-label="Diary 2026"]` gives `Diary 2026` */
+export function quotedInSelector(selector: string): string[] {
+  const quoted: string[] = [];
+  for (const match of selector.matchAll(/\[[^\]=]*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g)) {
+    quoted.push(match[1] ?? match[2] ?? "");
+  }
+  return quoted;
+}
+
+/**
+ * True for a rule that would carry a path or a name of the vault into the
+ * site: one that picks an element by a path, and one that compares an
+ * attribute with the name of a note that is not in the site, as a snippet
+ * does that hides the tab of a note.
+ */
+function namesPath(rule: CSSRule, namesKeptOut: (text: string) => boolean): boolean {
   const selector = (rule as { selectorText?: unknown }).selectorText;
-  if (typeof selector === "string" && (NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector))) {
-    return true;
+  if (typeof selector === "string") {
+    if (NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector)) {
+      return true;
+    }
+    if (selector.includes("[") && quotedInSelector(selector).some(namesKeptOut)) {
+      return true;
+    }
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
-  return inner !== undefined && Array.from(inner).some(namesPath);
+  return inner !== undefined && Array.from(inner).some((one) => namesPath(one, namesKeptOut));
 }
 
 /**
@@ -237,8 +298,8 @@ function namesPath(rule: CSSRule): boolean {
  * one that is kept out. A rule that holds other rules, as one for a width of
  * the window, is written again without those.
  */
-function textOf(rule: CSSRule): string {
-  if (!namesPath(rule)) {
+function textOf(rule: CSSRule, namesKeptOut: (text: string) => boolean): string {
+  if (!namesPath(rule, namesKeptOut)) {
     return rule.cssText;
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
@@ -246,7 +307,13 @@ function textOf(rule: CSSRule): string {
   if (inner === undefined || inner.length === 0 || open === -1 || typeof (rule as { selectorText?: unknown }).selectorText === "string") {
     return "";
   }
-  return rule.cssText.slice(0, open + 1) + Array.from(inner).map(textOf).join(" ") + "}";
+  return (
+    rule.cssText.slice(0, open + 1) +
+    Array.from(inner)
+      .map((one) => textOf(one, namesKeptOut))
+      .join(" ") +
+    "}"
+  );
 }
 
 /** The full address of a file that Obsidian serves itself, or null for what is inline or on the web */

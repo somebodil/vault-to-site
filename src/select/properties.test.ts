@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_PROPERTY_RULES, matchingRule, parsePropertyRules } from "./properties.ts";
+import { DEFAULT_PROPERTY_RULES, invalidPropertyLines, matchingRule, parsePropertyRules } from "./properties.ts";
 
 describe("parsePropertyRules", () => {
   it("reads one rule a line and skips what is not a rule", () => {
@@ -22,7 +22,23 @@ describe("parsePropertyRules", () => {
   });
 });
 
+describe("invalidPropertyLines", () => {
+  it("names the lines that were meant as a rule and are not one", () => {
+    assert.deepEqual(invalidPropertyLines("type: private\n\n  type = private \nprivate\n: x\ndraft:"), ["type = private", "private", ": x"]);
+    assert.deepEqual(invalidPropertyLines(DEFAULT_PROPERTY_RULES), []);
+    assert.deepEqual(invalidPropertyLines(""), []);
+  });
+});
+
 describe("matchingRule", () => {
+  it("takes a key with no value as every note that has the property", () => {
+    const rules = parsePropertyRules("draft:");
+    assert.deepEqual(matchingRule({ draft: null }, rules), { key: "draft", value: "" });
+    assert.deepEqual(matchingRule({ Draft: "yes" }, rules), { key: "draft", value: "" });
+    assert.deepEqual(matchingRule({ draft: [] }, rules), { key: "draft", value: "" });
+    assert.equal(matchingRule({ type: "draft" }, rules), null);
+  });
+
   const rules = parsePropertyRules(DEFAULT_PROPERTY_RULES);
 
   it("finds a note with the property", () => {

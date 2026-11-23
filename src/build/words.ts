@@ -10,21 +10,15 @@ import type { PropertyValue } from "../site-format.ts";
  * the path of its target as it was written, also the path of a note that is
  * kept out of the site. So they are shown as their words.
  *
- * What cannot be read as a link for sure is not left as it is either: an
- * address that opens Obsidian or a file of the device is taken out wherever
- * it stands, and so is a tag of HTML that holds more than its name: an
- * attribute can hold an address.
+ * An address that opens Obsidian or a file of the device is taken out
+ * wherever it stands, and so is a tag of HTML with an attribute that has a
+ * value: the value can be an address. Everything else stays as it was
+ * written, also what only looks like a link or a tag: `arr[i][j]`,
+ * `Vec<T, A>`, an address of the web in angle brackets.
  */
 
-/** A link in the way of Markdown: `[words](target)`, with a target in angle brackets or with brackets of its own, and a title after it */
-const MARKDOWN_LINK =
-  /!?\[((?:\\.|[^[\]\\])*)\]\(\s*(?:<[^>\n]*>|(?:\\.|[^()\s\\]|\((?:\\.|[^()\\])*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
-/** A link by a name that is given elsewhere: `[words][name]` */
-const REFERENCE_LINK = /!?\[((?:\\.|[^[\]\\])*)\]\[[^[\]\n]*\]/g;
-/** What stands in angle brackets as a tag of HTML does */
-const HTML_TAG = /<\/?[A-Za-z][^>\n]*>/g;
-/** A tag with a name and nothing else, as `<b>` or `</script>`: it holds no address, and it is shown as the text it is */
-const BARE_TAG = /^<\/?[A-Za-z][A-Za-z0-9-]*\s*\/?>$/;
+/** A tag of HTML with an attribute that has a value, as `<a href="...">`: the value can be an address */
+const TAG_WITH_VALUE = /<([A-Za-z][A-Za-z0-9-]*)\s[^<>\n]*=[^<>\n]*>/g;
 /** An address that leads into Obsidian or to a file of the device */
 const INNER_ADDRESS = /\b(?:obsidian|app|capacitor|file):\/\/[^\s)>\]"']*/gi;
 
@@ -63,28 +57,104 @@ function withoutWikilinks(text: string): string {
   }
 }
 
-export function shownWords(text: string): string {
-  let shown = withoutWikilinks(text);
-  // A link can hold another, as a picture that is a link: each pass takes away the innermost
-  for (let pass = 0; pass < 8; pass++) {
-    const next = shown.replace(MARKDOWN_LINK, "$1").replace(REFERENCE_LINK, "$1");
-    if (next === shown) {
-      break;
-    }
-    shown = next;
+/** True when the sign at this place has a backslash before it that takes its meaning away */
+function isEscaped(text: string, at: number): boolean {
+  let slashes = 0;
+  for (let i = at - 1; i >= 0 && text.charAt(i) === "\\"; i--) {
+    slashes++;
   }
+  return slashes % 2 === 1;
+}
+
+/** Where the `[` is that the `]` at `close` ends, with brackets inside the words counted, or -1 */
+function openOf(text: string, close: number): number {
+  let depth = 0;
+  for (let i = close - 1; i >= 0; i--) {
+    const sign = text.charAt(i);
+    if (sign === "\n") {
+      return -1;
+    }
+    if ((sign !== "[" && sign !== "]") || isEscaped(text, i)) {
+      continue;
+    }
+    if (sign === "]") {
+      depth++;
+    } else if (depth === 0) {
+      return i;
+    } else {
+      depth--;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Where the target of a link ends that starts after `(` at `from`: the place
+ * after its `)`, or -1. Brackets inside the target are counted, however deep;
+ * a target in angle brackets and a title in quotes are passed over whole.
+ */
+function endOfTarget(text: string, from: number): number {
+  let depth = 0;
+  for (let i = from; i < text.length; i++) {
+    const sign = text.charAt(i);
+    if (sign === "\n") {
+      return -1;
+    }
+    if (sign === "\\") {
+      i++;
+    } else if (sign === "(") {
+      depth++;
+    } else if (sign === ")") {
+      if (depth === 0) {
+        return i + 1;
+      }
+      depth--;
+    } else if (sign === "<" || ((sign === '"' || sign === "'") && /\s/.test(text.charAt(i - 1)))) {
+      const end = text.indexOf(sign === "<" ? ">" : sign, i + 1);
+      if (end !== -1 && !text.slice(i, end).includes("\n")) {
+        i = end;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Every link in the way of Markdown, `[words](target)`, as its words. Read
+ * sign by sign and not by one pattern: the words can hold brackets and a link
+ * of their own, as a picture that is a link, and the target can hold brackets.
+ */
+function withoutMarkdownLinks(text: string): string {
+  let shown = text;
+  let at = 0;
+  for (;;) {
+    const middle = shown.indexOf("](", at);
+    if (middle === -1) {
+      return shown;
+    }
+    const open = isEscaped(shown, middle) ? -1 : openOf(shown, middle);
+    const end = open === -1 ? -1 : endOfTarget(shown, middle + 2);
+    if (open === -1 || end === -1) {
+      at = middle + 2;
+      continue;
+    }
+    const start = open > 0 && shown.charAt(open - 1) === "!" ? open - 1 : open;
+    shown = shown.slice(0, start) + shown.slice(open + 1, middle) + shown.slice(end);
+    // From the start of the words again: they may be the words of a link around this one
+    at = start;
+  }
+}
+
+export function shownWords(text: string): string {
+  let shown = withoutMarkdownLinks(withoutWikilinks(text));
   // A tag that is taken out takes its end with it: `<a href="...">x</a>` is shown as `x`
   const taken = new Set<string>();
-  const nameOf = (tag: string): string => (/[A-Za-z][A-Za-z0-9-]*/.exec(tag)?.[0] ?? "").toLowerCase();
-  shown = shown.replace(HTML_TAG, (tag) => {
-    if (BARE_TAG.test(tag)) {
-      return tag;
-    }
-    taken.add(nameOf(tag));
+  shown = shown.replace(TAG_WITH_VALUE, (_tag, name: string) => {
+    taken.add(name.toLowerCase());
     return "";
   });
   if (taken.size > 0) {
-    shown = shown.replace(HTML_TAG, (tag) => (tag.startsWith("</") && taken.has(nameOf(tag)) ? "" : tag));
+    shown = shown.replace(/<\/([A-Za-z][A-Za-z0-9-]*)\s*>/g, (tag, name: string) => (taken.has(name.toLowerCase()) ? "" : tag));
   }
   return shown.replace(INNER_ADDRESS, "");
 }

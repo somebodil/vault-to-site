@@ -1,5 +1,6 @@
 import { type App, Component, MarkdownRenderer, parseLinktext, type TFile } from "obsidian";
 import { noteAddress } from "../site-format.ts";
+import { EMPTY_URL } from "./styles.ts";
 import { shownWords } from "./words.ts";
 
 /** What the drawing of a note needs to know of the site */
@@ -27,6 +28,8 @@ export interface Rendered {
 
 /** Set while a note is tidied: the note an embed shows, for the links inside it */
 const SOURCE = "data-v2s-source";
+/** On a link that the build has made itself, to a file of the site, while a note is tidied */
+const MADE = "data-v2s-made";
 /** On what was emptied because it is not part of the site */
 export const LEFT_OUT = "v2s-left-out";
 
@@ -165,16 +168,20 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener");
   });
-  dropOtherAddresses(host);
+  dropOtherAddresses(host, context);
   host.querySelectorAll("input[type=checkbox]").forEach((box) => box.setAttribute("disabled", ""));
   // A heading carries its text as it was written, with the target of a link in it
   host.querySelectorAll("[data-heading]").forEach((heading) => {
     heading.setAttribute("data-heading", shownWords(heading.getAttribute("data-heading") ?? ""));
   });
-  // The block of the search of Obsidian lists lines of other notes, whatever they are
-  host.querySelectorAll(".block-language-query, .internal-query").forEach(emptyOut);
+  // The block of the search of Obsidian lists lines of other notes, and a block of a base lists notes
+  // and their properties, whatever they are
+  host.querySelectorAll(".block-language-query, .internal-query, .block-language-base, .bases-embed").forEach(emptyOut);
   dropInnerAddresses(host);
-  host.querySelectorAll(`[${SOURCE}]`).forEach((el) => el.removeAttribute(SOURCE));
+  host.querySelectorAll(`[${SOURCE}], [${MADE}]`).forEach((el) => {
+    el.removeAttribute(SOURCE);
+    el.removeAttribute(MADE);
+  });
 }
 
 /**
@@ -206,37 +213,79 @@ function dropInnerAddresses(host: HTMLElement): void {
 
 /** An address with a scheme, as `https:` or `mailto:`, that does not lead into Obsidian, to a file of the device, or to script */
 const OUTER_ADDRESS = /^\s*(?!(?:app|capacitor|file|obsidian|javascript|vbscript|data|blob):)[a-z][a-z0-9+.-]*:/i;
+/** Every attribute of HTML and of a drawing whose value is an address */
+const ADDRESS_ATTRIBUTES = new Set([
+  "href",
+  "xlink:href",
+  "src",
+  "poster",
+  "data",
+  "action",
+  "formaction",
+  "cite",
+  "background",
+  "longdesc",
+  "ping",
+  "manifest",
+  "codebase",
+  "archive",
+  "lowsrc",
+  "dynsrc",
+  "icon",
+]);
+/** Attributes that hold a list of pictures of several sizes */
+const ADDRESS_LISTS = new Set(["srcset", "imagesrcset"]);
+/** What draws a picture or plays a sound from its `src`, as a picture inside a drawing does from its `href`: there, one that is written into the page itself is as good as one of the web */
+const MEDIA = new Set(["IMG", "AUDIO", "VIDEO", "SOURCE"]);
+const URL_IN_STYLE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi;
 
 /**
- * Takes the address from every link that is not one of the site and does not
- * lead out of it. The links that Obsidian knows as links between notes have
- * their addresses by now. What is left with an address without a scheme is a
- * link written as HTML, as `<a href="Folder/Note.md">`: a path of the vault,
- * which may be the path of a note that is kept out.
+ * Takes away every address that is not one of the site and does not lead out
+ * of it. The links and pictures that Obsidian knows as such have their
+ * addresses by now. What is left with an address without a scheme was
+ * written as HTML, as `<a href="Folder/Note.md">` or a picture in a `style`:
+ * a path of the vault, which may be the path of a note that is kept out.
+ *
+ * An address of the site is one the build has made, and nothing that only
+ * looks like one: a vault can have a folder with the name the site gives its
+ * files.
  */
-function dropOtherAddresses(host: HTMLElement): void {
-  const isGood = (address: string, own: string[]): boolean => own.some((start) => address.startsWith(start)) || OUTER_ADDRESS.test(address);
-  host.querySelectorAll("a[href]").forEach((link) => {
-    if (!isGood(link.getAttribute("href") ?? "", ["#", "assets/"])) {
-      for (const name of ["href", "aria-label", "title"]) {
-        link.removeAttribute(name);
+function dropOtherAddresses(host: HTMLElement, context: RenderContext): void {
+  const made = new Set(context.assets.values());
+  const isGood = (address: string): boolean => {
+    const plain = address.trim();
+    return plain.startsWith("#") || made.has(plain.split("#")[0] ?? "") || OUTER_ADDRESS.test(plain);
+  };
+  const isPicture = (address: string): boolean => /^\s*data:(image|audio|video)\//i.test(address);
+  host.querySelectorAll("*").forEach((el) => {
+    for (const attribute of Array.from(el.attributes)) {
+      const name = attribute.name.toLowerCase();
+      if (ADDRESS_ATTRIBUTES.has(name)) {
+        const drawsIt = name === "src" ? MEDIA.has(el.tagName) : el.localName === "image" && name.endsWith("href");
+        if (isGood(attribute.value) || (drawsIt && isPicture(attribute.value))) {
+          continue;
+        }
+        el.removeAttribute(attribute.name);
+        if (el.tagName === "A") {
+          el.removeAttribute("aria-label");
+          el.removeAttribute("title");
+          el.classList.add("is-unresolved");
+        }
+      } else if (ADDRESS_LISTS.has(name)) {
+        // Each of them has to be good
+        const addresses = attribute.value.split(",").map((part) => part.trim().split(/\s+/)[0] ?? "");
+        if (!addresses.every((address) => isGood(address) || isPicture(address))) {
+          el.removeAttribute(attribute.name);
+        }
+      } else if (name === "style" && attribute.value.toLowerCase().includes("url(")) {
+        el.setAttribute(
+          attribute.name,
+          attribute.value.replace(URL_IN_STYLE, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
+            const address = double ?? single ?? bare ?? "";
+            return /^\s*https?:/i.test(address) || isPicture(address) ? whole : EMPTY_URL;
+          }),
+        );
       }
-      link.classList.add("is-unresolved");
-    }
-  });
-  host.querySelectorAll("iframe[src], [poster]").forEach((el) => {
-    for (const name of ["src", "poster"]) {
-      const address = el.getAttribute(name);
-      if (address !== null && !(el.tagName !== "IFRAME" && name === "src") && !isGood(address, ["assets/"])) {
-        el.removeAttribute(name);
-      }
-    }
-  });
-  // A list of pictures of several sizes: each of them has to be good
-  host.querySelectorAll("[srcset]").forEach((el) => {
-    const addresses = (el.getAttribute("srcset") ?? "").split(",").map((part) => part.trim().split(/\s+/)[0] ?? "");
-    if (!addresses.every((address) => isGood(address, ["assets/"]) || address.startsWith("data:"))) {
-      el.removeAttribute("srcset");
     }
   });
 }
@@ -281,7 +330,7 @@ function tidyEmbeds(host: HTMLElement, file: TFile, context: RenderContext): voi
       // A canvas, a base or another file that Obsidian draws with content of its own: cards and rows
       // of other notes, whatever they are. The file is part of the site, so there is a link to it.
       const name = target.slice(target.lastIndexOf("/") + 1);
-      embed.replaceChildren(createEl("a", { cls: "internal-link", text: name, attr: { href: asset, target: "_blank" } }));
+      embed.replaceChildren(createEl("a", { cls: "internal-link", text: name, attr: { href: asset, target: "_blank", [MADE]: "" } }));
       for (const attribute of ["src", "alt"]) {
         embed.removeAttribute(attribute);
       }
@@ -291,6 +340,10 @@ function tidyEmbeds(host: HTMLElement, file: TFile, context: RenderContext): voi
 
 function tidyLinks(host: HTMLElement, file: TFile, context: RenderContext): void {
   for (const link of Array.from(host.querySelectorAll<HTMLElement>("a.internal-link"))) {
+    if (link.hasAttribute(MADE)) {
+      // Has the address of a file of the site already. Whatever carries this mark without being made here loses its address later.
+      continue;
+    }
     const { path, subpath } = parseLinktext(link.getAttribute("data-href") ?? link.getAttribute("href") ?? "");
     const source = sourceOf(link, file);
     const target = path === "" ? source : context.app.metadataCache.getFirstLinkpathDest(path, source)?.path;

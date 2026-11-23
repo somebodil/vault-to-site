@@ -44,6 +44,8 @@ export interface MentionFinder {
   add(path: string, text: string): void;
   /** What was found so far */
   found(): Mention[];
+  /** True when the name of one of the notes stands in a text. Nothing is kept of it. */
+  names(text: string): boolean;
 }
 
 /**
@@ -83,42 +85,54 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
   const lengths = [...new Set([...byFirstWord.keys()].map((word) => word.length))].sort((a, b) => a - b);
   const shown = new Map<string, Set<string>>();
 
-  return {
-    add(pagePath, pageText) {
-      if (byFirstWord.size === 0) {
-        return;
-      }
-      const text = fold(pageText);
-      // A pattern of its own: this may run while another page is looked through
-      const words = new RegExp(WORD.source, WORD.flags);
-      for (let word = words.exec(text); word !== null; word = words.exec(text)) {
-        for (const length of lengths) {
-          if (length > word[0].length) {
-            break;
+  /** Goes through a text and gives the notes whose name stands in it to `hit`. `hit` ends the walk by answering true. */
+  const scan = (pageText: string, hit: (paths: readonly string[]) => boolean): void => {
+    if (byFirstWord.size === 0) {
+      return;
+    }
+    const text = fold(pageText);
+    // A pattern of its own: this may run while another page is looked through
+    const words = new RegExp(WORD.source, WORD.flags);
+    for (let word = words.exec(text); word !== null; word = words.exec(text)) {
+      for (const length of lengths) {
+        if (length > word[0].length) {
+          break;
+        }
+        const entry = byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length));
+        for (const shape of entry?.shapes ?? []) {
+          const start = word.index - shape.lead;
+          const name = start < 0 ? "" : text.slice(start, start + shape.length);
+          const paths = entry?.paths.get(name);
+          if (paths === undefined) {
+            continue;
           }
-          const entry = byFirstWord.get(length === word[0].length ? word[0] : word[0].slice(0, length));
-          for (const shape of entry?.shapes ?? []) {
-            const start = word.index - shape.lead;
-            const name = start < 0 ? "" : text.slice(start, start + shape.length);
-            const paths = entry?.paths.get(name);
-            if (paths === undefined) {
-              continue;
-            }
-            const goesOn = LETTER.test(text.charAt(start + shape.length)) && LATIN.test(name.charAt(name.length - 1));
-            if (goesOn) {
-              continue;
-            }
-            for (const path of paths) {
-              let pagesOf = shown.get(path);
-              if (pagesOf === undefined) {
-                pagesOf = new Set();
-                shown.set(path, pagesOf);
-              }
-              pagesOf.add(pagePath);
-            }
+          const goesOn = LETTER.test(text.charAt(start + shape.length)) && LATIN.test(name.charAt(name.length - 1));
+          if (!goesOn && hit(paths)) {
+            return;
           }
         }
       }
+    }
+  };
+
+  return {
+    add(pagePath, pageText) {
+      scan(pageText, (paths) => {
+        for (const path of paths) {
+          let pagesOf = shown.get(path);
+          if (pagesOf === undefined) {
+            pagesOf = new Set();
+            shown.set(path, pagesOf);
+          }
+          pagesOf.add(pagePath);
+        }
+        return false;
+      });
+    },
+    names(text) {
+      let isNamed = false;
+      scan(text, () => (isNamed = true));
+      return isNamed;
     },
     found() {
       return [...shown]

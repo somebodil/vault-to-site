@@ -1,6 +1,6 @@
 import type { NotePage } from "../site-format.ts";
 import { el } from "./dom.ts";
-import { noteNodes } from "./note.ts";
+import { noteBlocks } from "./note.ts";
 
 export interface PreviewHost {
   /** True for a note of the site: only notes have a preview */
@@ -42,7 +42,7 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     }
     popover?.remove();
     const view = el("div", { cls: "markdown-preview-view markdown-rendered" });
-    view.append(...noteNodes(page.html));
+    view.append(...noteBlocks(page.html));
     const mine = el("div", { cls: "popover hover-popover v2s-popover" }, [
       el("div", { cls: "markdown-embed is-loaded" }, [el("div", { cls: "markdown-embed-content" }, [view])]),
     ]);

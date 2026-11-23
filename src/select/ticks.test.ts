@@ -89,18 +89,24 @@ describe("renameTicks", () => {
   });
 });
 
-describe("renameTicks onto a path that was decided before", () => {
+describe("renameTicks onto a path that something was deleted from", () => {
   it("lets what moves there decide, so that a left-out note is not ticked by a tick of a note that is gone", () => {
     // Notes/old.md was ticked on its own and then deleted; a left-out note is moved onto its path
     const ticks: Ticks = { on: ["Notes", "Notes/old.md"], off: ["Notes/diary.md"] };
-    const renamed = renameTicks(ticks, "Notes/diary.md", "Notes/old.md");
+    const renamed = renameTicks(ticks, "Notes/diary.md", "Notes/old.md", true);
     assert.deepEqual(renamed, { on: ["Notes"], off: ["Notes/old.md"] });
     assert.equal(ticker(renamed)("Notes/old.md"), false);
   });
 
   it("does the same for a folder", () => {
     const ticks: Ticks = { on: ["", "Old/keep.md"], off: ["Private"] };
-    assert.deepEqual(renameTicks(ticks, "Private", "Old"), { on: [""], off: ["Old"] });
+    assert.deepEqual(renameTicks(ticks, "Private", "Old", true), { on: [""], off: ["Old"] });
+  });
+
+  it("leaves what is decided for the new path alone when nothing was deleted there: it was moved there a moment ago", () => {
+    // Obsidian has told of the folder, and tells of the note in it now
+    const moved = renameTicks({ on: [""], off: ["Notes/diary.md"] }, "Notes", "Wiki");
+    assert.deepEqual(renameTicks(moved, "Notes/diary.md", "Wiki/diary.md"), { on: [""], off: ["Wiki/diary.md"] });
   });
 });
 

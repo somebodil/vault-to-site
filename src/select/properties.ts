@@ -1,6 +1,8 @@
 /**
  * A property that keeps a note out of the site, as `key: value`. A note with
- * `type: private` among its properties is left out whatever is ticked.
+ * `type: private` among its properties is left out whatever is ticked. A key
+ * with no value, as `draft:`, is every note that has the property, whatever
+ * it holds.
  */
 export interface PropertyRule {
   key: string;
@@ -10,7 +12,19 @@ export interface PropertyRule {
 /** The rules a vault starts with. `publish: false` is what Obsidian Publish reads. */
 export const DEFAULT_PROPERTY_RULES = "type: private\npublish: false";
 
-/** One rule a line. Lines without a colon, or without a key, are skipped. */
+/**
+ * The lines that are not a rule: text without a colon, or without a key
+ * before it. A line that was meant as a rule and is not one keeps nothing
+ * out, so it is not passed over in silence.
+ */
+export function invalidPropertyLines(input: string): string[] {
+  return input
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && line.indexOf(":") < 1);
+}
+
+/** One rule a line. Lines without a colon, or without a key, are not rules: see `invalidPropertyLines`. */
 export function parsePropertyRules(input: string): PropertyRule[] {
   const rules: PropertyRule[] = [];
   for (const line of input.split("\n")) {
@@ -44,7 +58,7 @@ export function matchingRule(properties: Record<string, unknown> | undefined, ru
         continue;
       }
       const items: unknown[] = Array.isArray(value) ? value : [value];
-      if (items.some((item) => fold(item) === fold(rule.value))) {
+      if (rule.value === "" || items.some((item) => fold(item) === fold(rule.value))) {
         return rule;
       }
     }

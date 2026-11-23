@@ -5,6 +5,15 @@ import { ZipWriter } from "./zip.ts";
 export const MARKER = "vault-to-site.json";
 
 /** What a build puts at the top of a site: only these are removed before a build */
+/**
+ * The names an archive has on the way: while it is written, and while the
+ * one before gives way to it. Nobody gives a file of their own such a name,
+ * so a file with one is a rest of a build, and a rename to or from one is a
+ * step of a build.
+ */
+export const PART = ".v2s-part";
+export const OLD = ".v2s-old";
+
 const SITE_FILES = [MARKER, "index.html", ".nojekyll"];
 const SITE_FOLDERS = ["app", "data", "assets"];
 
@@ -230,7 +239,7 @@ export class ZipOutput implements SiteOutput {
   constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024) {
     this.adapter = adapter;
     this.path = zipPath(path);
-    this.part = this.path + ".part";
+    this.part = this.path + PART;
     this.mayReplace = mayReplace;
     this.pieceSize = pieceSize;
     this.zip = new ZipWriter((piece) => this.take(piece));
@@ -271,7 +280,7 @@ export class ZipOutput implements SiteOutput {
       await this.flush();
       // Only now does the archive of the build before give way. It is set aside, not removed, until the
       // new one has its name: should that fail, the old one is put back.
-      const before = this.path + ".old";
+      const before = this.path + OLD;
       const hadOne = await this.adapter.exists(this.path);
       if (hadOne) {
         if (await this.adapter.exists(before)) {

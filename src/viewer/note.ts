@@ -11,7 +11,27 @@ export function titleOf(path: string): string {
  * paragraph stays there. Should a browser refuse the XML, the note is read as
  * HTML, which shows the same words with some of the nesting lost.
  */
-export function noteNodes(xml: string): Node[] {
+/**
+ * The blocks of a note as the reading view of Obsidian has them: each in a
+ * `div` that is named after what it holds, as `el-h2`, `el-p` or `el-ul`.
+ * Obsidian draws a note for the build without these, and its own style
+ * sheets, themes and snippets are written for a view that has them: the
+ * first block of a note has no space above it, and a rule can be given for
+ * `.el-h2 + .el-p`.
+ */
+export function noteBlocks(xml: string): HTMLElement[] {
+  const blocks: HTMLElement[] = [];
+  for (const node of noteNodes(xml)) {
+    if (node instanceof Element) {
+      blocks.push(el("div", { cls: `el-${node.localName.toLowerCase()}` }, [node]));
+    } else if ((node.textContent ?? "").trim() !== "") {
+      blocks.push(el("div", {}, [node]));
+    }
+  }
+  return blocks;
+}
+
+function noteNodes(xml: string): Node[] {
   const parsed = new DOMParser().parseFromString(`<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`, "application/xhtml+xml");
   const root = parsed.documentElement;
   if (root.localName === "div" && parsed.getElementsByTagName("parsererror").length === 0) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { fileOfData, fontKey, weightRangeOf } from "./styles.ts";
+import { fileOfData, fontKey, quotedInSelector, weightRangeOf } from "./styles.ts";
 
 describe("fontKey", () => {
   it("is the same for the name of a font and the name of its file", () => {
@@ -73,5 +73,16 @@ describe("weightRangeOf", () => {
     assert.equal(weightRangeOf(font([["wght", 400, 400]])), null);
     assert.equal(weightRangeOf(new ArrayBuffer(3)), null);
     assert.equal(weightRangeOf(new TextEncoder().encode("not a font at all, just some text").buffer), null);
+  });
+});
+
+describe("quotedInSelector", () => {
+  it("gives what an attribute is compared with", () => {
+    assert.deepEqual(quotedInSelector('.workspace-tab-header[aria-label="Diary 2026"]'), ["Diary 2026"]);
+    assert.deepEqual(quotedInSelector("a[title^='My plan'], .x[data-kind *= \"a \\\" b\"]"), ["My plan", 'a \\" b']);
+  });
+
+  it("gives nothing for a selector without a comparison in quotes", () => {
+    assert.deepEqual(quotedInSelector('.callout[data-callout=note] > .x::before, a:not([href])'), []);
   });
 });

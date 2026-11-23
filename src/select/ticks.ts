@@ -78,11 +78,20 @@ export function movedPath(path: string, from: string, to: string): string {
   return path === from ? to : to + path.slice(from.length);
 }
 
-export function renameTicks(ticks: Ticks, from: string, to: string): Ticks {
+/**
+ * The ticks after a folder or file got another name: what was decided for it
+ * and for what is inside it goes with it.
+ *
+ * Obsidian says that a folder has another name and says the same of
+ * everything in it, in no promised order. Each of these may be given here:
+ * what one of them has moved, the others leave as it is.
+ *
+ * @param isOntoGone true when the new path is one that something was deleted from. What was decided for that is not meant for what has come there now, and is dropped.
+ */
+export function renameTicks(ticks: Ticks, from: string, to: string, isOntoGone = false): Ticks {
   const isMoved = (path: string): boolean => isAtOrUnder(path, from) && from !== "";
   const moved = (path: string): string => movedPath(path, from, to);
-  // What was decided for the new path before belongs to something that is not there any more: what moves there decides
-  const isStale = (path: string): boolean => !isMoved(path) && to !== "" && isAtOrUnder(path, to);
+  const isStale = (path: string): boolean => isOntoGone && !isMoved(path) && to !== "" && isAtOrUnder(path, to);
   const follow = (paths: string[]): string[] => [...new Set(paths.filter((path) => !isStale(path)).map((path) => (isMoved(path) ? moved(path) : path)))].sort();
   return { on: follow(ticks.on), off: follow(ticks.off) };
 }

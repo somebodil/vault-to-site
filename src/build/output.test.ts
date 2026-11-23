@@ -288,7 +288,7 @@ describe("ZipOutput", () => {
 
   it("writes the archive again when it was left empty", async () => {
     const adapter = new MemoryAdapter();
-    adapter.emptyOnce.add("site.zip.part");
+    adapter.emptyOnce.add("site.zip.v2s-part");
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     await output.text("index.html", "content");
@@ -313,10 +313,10 @@ describe("ZipOutput", () => {
     await output.text("data/n/a.js", "x".repeat(50));
     await output.binary("assets/noise.png", new Uint8Array(5000).map((_, i) => (i * 7919) & 0xff).buffer);
     assert.deepEqual(adapter.files.get("site.zip"), before, "still there while the new one is written");
-    assert.ok(adapter.files.has("site.zip.part"));
+    assert.ok(adapter.files.has("site.zip.v2s-part"));
     await output.abort();
     assert.deepEqual(adapter.files.get("site.zip"), before, "and after the build was given up");
-    assert.equal(adapter.files.has("site.zip.part"), false);
+    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
   });
 
   it("adds nothing after a failure, and does not end as an archive", async () => {
@@ -329,7 +329,7 @@ describe("ZipOutput", () => {
     await assert.rejects(output.finish(), /no such file/);
     await output.abort();
     assert.equal(adapter.files.has("site.zip"), false);
-    assert.equal(adapter.files.has("site.zip.part"), false);
+    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
   });
 
   it("does not write over a file that no build of the plugin wrote", async () => {
@@ -348,7 +348,7 @@ describe("ZipOutput", () => {
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     await output.text("index.html", "new");
-    adapter.failRename = (from) => from === "site.zip.part";
+    adapter.failRename = (from) => from === "site.zip.v2s-part";
     await assert.rejects(output.finish(), /busy/);
     await output.abort();
     assert.deepEqual(adapter.files.get("site.zip"), before);
@@ -357,9 +357,9 @@ describe("ZipOutput", () => {
 
   it("takes away what a build that broke off left behind", async () => {
     const adapter = new MemoryAdapter();
-    adapter.files.set("site.zip.part", new Uint8Array(100));
+    adapter.files.set("site.zip.v2s-part", new Uint8Array(100));
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
-    assert.equal(adapter.files.has("site.zip.part"), false);
+    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
   });
 });

@@ -3,7 +3,7 @@ import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, type Haystack } from "./find.ts";
 import { addFolding } from "./fold.ts";
 import { graphView } from "./graph.ts";
-import { copyText, fileView, noteNodes, propertiesView, titleOf } from "./note.ts";
+import { copyText, fileView, noteBlocks, propertiesView, titleOf } from "./note.ts";
 import { watchPreviews } from "./preview.ts";
 import { createSearch } from "./search.ts";
 import { buildTree, firstNote, treeView } from "./tree.ts";
@@ -285,10 +285,12 @@ function start(index: SiteIndex): void {
     tree.show(id);
     closeOnNarrow();
 
-    const parts: Node[] = [];
+    // As in the reading view of Obsidian: what stands above the note is one block that is not of the note, and the blocks of the note follow it
+    const header = el("div", { cls: "mod-header mod-ui" });
+    const parts: Node[] = [header];
     let headings: [number, string][] = [];
     if (index.inlineTitle) {
-      parts.push(el("div", { cls: "inline-title", text: titleOf(path) }));
+      header.appendChild(el("div", { cls: "inline-title", text: titleOf(path) }));
     }
     if (note === undefined && file !== undefined) {
       parts.push(fileView(file.a, path));
@@ -302,9 +304,9 @@ function start(index: SiteIndex): void {
         return;
       }
       if (page.props.length > 0) {
-        parts.push(propertiesView(page.props));
+        header.appendChild(propertiesView(page.props));
       }
-      parts.push(...noteNodes(page.html));
+      parts.push(...noteBlocks(page.html));
       headings = page.h;
     }
     sizer.replaceChildren(...parts);

@@ -1,4 +1,4 @@
-import { zipPath } from "./build/output.ts";
+import { OLD, PART, zipPath } from "./build/output.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
 import { movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
 
@@ -53,14 +53,14 @@ export function outputOf(settings: Settings): string {
  *   the next build writes a new one where the setting says, and does not
  *   write over the one that was put aside.
  *
- * The names a build gives its own archive on the way (`.part` while it is
- * written, `.old` while it is replaced) are not a rename by the user, and
- * change nothing.
+ * The names a build gives its own archive on the way are not a rename by the
+ * user, and change nothing.
  *
+ * @param isOntoGone see `renameTicks`
  * @param normal makes a path as it is written in a setting into the form the vault has
  */
-export function followRename(settings: Settings, from: string, to: string, normal: (path: string) => string = (path) => path): Settings {
-  if (to === `${from}.old` || from.endsWith(".old") || from.endsWith(".part") || to.endsWith(".part")) {
+export function followRename(settings: Settings, from: string, to: string, isOntoGone = false, normal: (path: string) => string = (path) => path): Settings {
+  if ([from, to].some((path) => path.endsWith(PART) || path.endsWith(OLD))) {
     return settings;
   }
   const moved = (path: string): string => movedPath(path, from, to);
@@ -69,7 +69,7 @@ export function followRename(settings: Settings, from: string, to: string, norma
   const folder = normal(settings.folder);
   return {
     ...settings,
-    ticks: renameTicks(settings.ticks, from, to),
+    ticks: renameTicks(settings.ticks, from, to, isOntoGone),
     written: [...new Set(settings.written.map(moved))],
     zip: under(zip) === zip ? settings.zip : under(zip),
     folder: under(folder) === folder ? settings.folder : under(folder),

@@ -78,3 +78,14 @@ describe("mentionFinder", () => {
     ]);
   });
 });
+
+describe("mentionFinder.names", () => {
+  it("says whether a text holds one of the names, and keeps nothing of it", () => {
+    const finder = mentionFinder(["Private/Diary 2026.md", "Private/Plan.md"]);
+    assert.equal(finder.names("Diary 2026"), true);
+    assert.equal(finder.names("the diary 2026 of mine"), true);
+    assert.equal(finder.names("Settings"), false);
+    assert.equal(finder.names("planet"), false);
+    assert.deepEqual(finder.found(), []);
+  });
+});

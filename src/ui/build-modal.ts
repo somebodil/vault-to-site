@@ -4,6 +4,7 @@ import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
 import { signatureOf, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
+import { invalidPropertyLines } from "../select/properties.ts";
 import { missingTicks, parentOf, setTick, ticker } from "../select/ticks.ts";
 import type { Settings } from "../settings.ts";
 
@@ -85,7 +86,7 @@ export class BuildModal extends Modal {
 
     /** Works out what a build would hold, and says it above the tree */
     const plan = (): void => {
-      const { choice, hasInvalidPattern } = planSite(this.app, this.settings, files);
+      const { choice, invalid } = planSite(this.app, this.settings, files);
       keptOut = new Map<string, string>([
         ...choice.unread.map((x): [string, string] => [x.path, "not read"]),
         ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
@@ -96,15 +97,15 @@ export class BuildModal extends Modal {
       if (keptOut.size > 0) {
         summary.createSpan({ cls: "vault-to-site-muted", text: ` ${String(keptOut.size)} kept out by a rule.` });
       }
-      if (hasInvalidPattern) {
-        // A pattern that does not work keeps nothing out, and what it was written for would go in
-        summary.createDiv({ cls: "vault-to-site-warning", text: "A pattern is not a valid regular expression. Correct it or take it out: a site is not built with a rule that does not work." });
+      if (invalid.length > 0) {
+        // A rule that does not work keeps nothing out, and what it was written for would go in
+        summary.createDiv({ cls: "vault-to-site-warning", text: `${invalid.join(" ")} Correct it or take it out: a site is not built with a rule that does not work.` });
       }
       const gone = this.goneLeftOut();
       if (gone.length > 0) {
         summary.createDiv({ cls: "vault-to-site-warning", text: goneWarning(gone) });
       }
-      review?.setDisabled(hasInvalidPattern || choice.notes.length + choice.files.length === 0);
+      review?.setDisabled(invalid.length > 0 || choice.notes.length + choice.files.length === 0);
     };
 
     const drawTree = (): void => {
@@ -227,14 +228,19 @@ export class BuildModal extends Modal {
 
     new Setting(contentEl)
       .setName("Leave out by property")
-      .setDesc("One property a line, as key: value. A note that has one of them stays out, ticked or not.")
+      .setDesc("One property a line, as key: value. A note that has one of them stays out, ticked or not. A key alone, as draft:, is every note with that property.")
       .addTextArea((area) => {
         area.setValue(this.settings.properties);
         area.inputEl.rows = 3;
+        const mark = (): void => {
+          area.inputEl.toggleClass("vault-to-site-invalid", invalidPropertyLines(area.getValue()).length > 0);
+        };
+        mark();
         area.onChange((value) => {
           this.change((settings) => {
             settings.properties = value;
           });
+          mark();
           afterTyping();
         });
       });
@@ -305,8 +311,8 @@ export class BuildModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     this.setTitle("Look over the site");
-    const { choice, hasInvalidPattern } = planSite(this.app, this.settings);
-    if (hasInvalidPattern) {
+    const { choice, invalid } = planSite(this.app, this.settings);
+    if (invalid.length > 0) {
       this.showChoose();
       return;
     }

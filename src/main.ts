@@ -1,4 +1,5 @@
 import { normalizePath, Plugin } from "obsidian";
+import { isAtOrUnder } from "./select/ticks.ts";
 import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
@@ -8,6 +9,8 @@ export default class VaultToSitePlugin extends Plugin {
   private readonly config: Settings = { ...DEFAULT_SETTINGS };
   /** The dialog that is open, or was open last */
   private dialog: BuildModal | null = null;
+  /** The paths that something was deleted from since the plugin was turned on, and that are still empty */
+  private readonly gone = new Set<string>();
 
   override async onload(): Promise<void> {
     await this.readData();
@@ -27,13 +30,22 @@ export default class VaultToSitePlugin extends Plugin {
     // What is ticked and what was written is kept by path. A folder or file that gets another name is followed.
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
-        const next = followRename(this.config, oldPath, file.path, normalizePath);
+        const next = followRename(this.config, oldPath, file.path, this.gone.has(file.path), normalizePath);
+        for (const path of [...this.gone]) {
+          if (isAtOrUnder(path, file.path)) {
+            this.gone.delete(path);
+          }
+        }
         if (JSON.stringify(next) !== JSON.stringify(this.config)) {
           Object.assign(this.config, next);
           void this.saveData(this.config);
         }
       }),
     );
+    // A path that something was deleted from, until something is made there again: a sync deletes a
+    // note and makes it again, and its tick is still meant for it. What is renamed onto such a path is another thing.
+    this.registerEvent(this.app.vault.on("delete", (file) => this.gone.add(file.path)));
+    this.registerEvent(this.app.vault.on("create", (file) => this.gone.delete(file.path)));
   }
 
   /** Closing the dialog stops a build that runs: nothing of the plugin goes on working after it is turned off */

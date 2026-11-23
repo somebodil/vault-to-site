@@ -28,9 +28,12 @@ describe("shownWords", () => {
       ["[x]( Private/Secret.md )", "x"],
       ["[a \\] b](Private/Secret.md)", "a \\] b"],
       ["[![i](a.png)](Private/Secret.md)", "i"],
-      ["[x][ref] and ![y][other]", "x and y"],
+      ["[Budget [2026]](Private/Budget.md)", "Budget [2026]"],
+      ["[a](b) [c [d]](Private/E.md)", "a c [d]"],
+      ["[x](Private/a(b(c)).md)", "x"],
+      ["[x](Private/My Secret.md)", "x"],
+      ['[x](Private/Secret.md "a (hint) here")', "x"],
       ['<a href="Private/Secret.md">x</a>', "x"],
-      ["<Private/Secret.md>", ""],
     ];
     for (const [written, shown] of cases) {
       assert.equal(shownWords(written), shown, written);
@@ -61,6 +64,21 @@ describe("shownWords", () => {
     assert.equal(shownWords("<script>window.x=1</script>"), "<script>window.x=1</script>");
     assert.equal(shownWords("a <b>bold</b> word<br/>"), "a <b>bold</b> word<br/>");
     assert.equal(shownWords('<b>kept</b> <a href="Private/Secret.md">x</a> <span data-at="Private/x">y</span>'), "<b>kept</b> x y");
+  });
+
+  it("leaves what only looks like a link or a tag as it was written", () => {
+    for (const written of [
+      "Access arr[i][j] fast",
+      "Vec<T, A> in Rust",
+      "Promise<string | null>",
+      "Map<K, V = string>",
+      "see <https://example.com/page?a=1> and mail <me@example.com>",
+      "[x][ref] and ![y][other]",
+      "a \\](b) c",
+      "f(x) = [1, 2](open",
+    ]) {
+      assert.equal(shownWords(written), written, written);
+    }
   });
 
   it("leaves text without links as it is", () => {

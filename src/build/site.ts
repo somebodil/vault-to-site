@@ -67,7 +67,7 @@ let isBuilding = false;
  * of Obsidian, the files the notes use and the script that shows it all.
  *
  * @param reviewed the sign of the choice that was looked over (`signatureOf`). The build is not done when the vault has changed since.
- * @param claim called with the place the site is written to, before anything is written there: from then on the place is the plugin's
+ * @param claim called with the place the site is written to, before anything of the build is there: from then on the place is the plugin's
  */
 export async function buildSite(
   app: App,
@@ -121,8 +121,10 @@ async function build(
   const output: SiteOutput =
     settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place);
   await output.prepare();
-  // Before the first file: what a build has started to write is the plugin's, also when the build is stopped
-  await claim(place);
+  if (settings.format === "folder") {
+    // Before the first file: what a build has started to write into a folder is the plugin's, also when the build is stopped
+    await claim(place);
+  }
 
   const total = choice.notes.length + choice.files.length + 1;
   let done = 0;
@@ -251,7 +253,14 @@ async function build(
 
       // After the notes: drawing a formula adds styles for the signs it uses
       progress(done, total, "Styles");
-      const styles = await captureStyles(doc);
+      // A rule of a snippet can pick an element by the name of a note, as one that hides its tab
+      const outside = mentionFinder(
+        app.vault
+          .getMarkdownFiles()
+          .map((file) => file.path)
+          .filter((path) => !noteIds.has(path)),
+      );
+      const styles = await captureStyles(doc, (text) => outside.names(text));
       const fonts = await captureScriptFonts(doc, app.vault.adapter, normalizePath(app.vault.configDir + "/fonts"));
       await output.text("app/obsidian.css", styles.css + fonts.css);
       for (const resource of [...styles.resources, ...fonts.resources]) {
@@ -301,6 +310,11 @@ async function build(
     await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();
     progress(total, total, "Writing");
+    if (settings.format === "zip") {
+      // Only now: until the archive is about to stand, there is nothing of the plugin at its place, and a
+      // file that someone puts there in the meantime is theirs
+      await claim(place);
+    }
     const written = await output.finish();
     progress(total, total, "");
 

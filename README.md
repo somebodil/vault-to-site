@@ -58,7 +58,9 @@ Three things decide, in this order. A later one always wins over an earlier one.
 
    A comma is part of a pattern when it is escaped (`\,`), inside square brackets, inside a group, or inside a quantifier (`{1,3}`). **A pattern that is not a valid regular expression stops the build** until you correct it or take it out: a rule that does not work keeps nothing out. `*.png` is such a pattern; write `\.png$`.
 
-3. **Leave out by property.** One property a line, as `key: value`. A note that has one of them stays out. To begin with these are `type: private` and `publish: false`.
+3. **Leave out by property.** One property a line, as `key: value`. A note that has one of them stays out. To begin with these are `type: private` and `publish: false`. A key alone, as `draft:`, is every note that has that property, whatever it holds.
+
+   A pattern that is not a regular expression, or a line that is not a property, keeps nothing out. The dialog says which one it is, and no site is built until it is corrected or taken out.
 
    **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
@@ -75,7 +77,7 @@ A note that is not part of the site leaves nothing in it:
 - **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link. Where the link led is removed, and the search finds only the words that show.
 - **Its pictures stay out with it,** unless a note of the site uses them too.
 
-The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. A link written as HTML in a note (`<a href="...">`) keeps its address only when it leads to the web, to a place on its own page, or to a file of the site. A style rule of a plugin that names a folder or a note of the vault is not copied.
+The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. What is written as HTML in a note keeps an address (`href`, `src`, a picture in a `style`) only when it leads to the web, to a place on its own page, or to a file of the site. A style rule of a plugin or a snippet that names a folder of the vault, or a note that is not in the site, is not copied.
 
 The step **Look over** lists the links and embeds that are cut this way.
 
@@ -100,7 +102,7 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **A site is a picture of the vault at the time of the build.** What a plugin shows in a note, such as the result of a query, is as it was then. Every build draws every note again.
 - **An archive is at most 4 GB and 65,535 files.** A larger site is built as a folder.
 - **Canvases and bases stay out.** The site cannot draw them, and as plain files they would only carry the paths and the text they hold. An embed of one in a note is cut like a link to a note outside the site.
-- **The search block of Obsidian is emptied.** A block that starts with `query` lists lines of other notes, whatever they are.
+- **The search block and the base block of Obsidian are emptied.** A block that starts with `query` lists lines of other notes, and one that starts with `base` lists notes and their properties, whatever they are.
 - **A link to a block leads to its note,** not to the block.
 - **A site is written inside the vault,** because that is where a plugin may write on a phone.
 - **In a link to a note outside the site, the words stay.** A link written without other words shows the name of its note.
