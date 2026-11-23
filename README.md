@@ -31,7 +31,10 @@ What a build has written is never part of a site, also after you give the archiv
 
 - **The files** on the left, in folders, as in the file explorer
 - **The note** in the middle, as Obsidian draws it in reading view: callouts, tables, code, formulas, diagrams, embeds, footnotes, properties
-- **The outline and the backlinks** of the note on the right
+- **The outline, the backlinks and the graph** of the note on the right: the note with the notes it links to and the notes that link to it
+- **The graph of the whole site**, from a button above the note. It can be moved and sized; the note under the pointer shows its name and its links, and a click opens it.
+- **The note of a link** in a small window while the pointer rests on the link, as the page preview of Obsidian
+- **Headings that fold**, with the triangle before a heading
 - **Search** by the name of a note and by the words the notes show: press `/` or `Ctrl+K`
 - **Dark and light**, as Obsidian was when the site was built, with a button to change it
 - **An address for every note**, so the back and forward buttons of the browser work, a note that you come back to is where you left it, and a note or a heading can be bookmarked
@@ -100,7 +103,6 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **An archive is at most 4 GB and 65,535 files.** A larger site is built as a folder.
 - **Canvases and bases stay out.** The site cannot draw them, and as plain files they would only carry the paths and the text they hold. An embed of one in a note is cut like a link to a note outside the site.
 - **The search block of Obsidian is emptied.** A block that starts with `query` lists lines of other notes, whatever they are.
-- **There is no graph view.**
 - **A link to a block leads to its note,** not to the block.
 - **A site is written inside the vault,** because that is where a plugin may write on a phone.
 - **In a link to a note outside the site, the words stay.** A link written without other words shows the name of its note.

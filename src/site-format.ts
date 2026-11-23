@@ -83,4 +83,5 @@ export const ICON_NAMES = [
   "check",
   "file",
   "link",
+  "git-fork",
 ] as const;

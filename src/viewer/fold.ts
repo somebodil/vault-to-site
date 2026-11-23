@@ -1,0 +1,59 @@
+import { el } from "./dom.ts";
+
+/** On what a folded heading hides */
+const FOLDED = "v2s-folded";
+const HEADINGS = new Set(["H1", "H2", "H3", "H4", "H5", "H6"]);
+
+/** The level of a heading element, or 0 for anything else */
+function levelOf(node: Element): number {
+  return HEADINGS.has(node.tagName) ? Number(node.tagName.charAt(1)) : 0;
+}
+
+/**
+ * Which of the blocks of a note are hidden, given which headings are folded.
+ * A folded heading hides what follows it up to the next heading of its level
+ * or above. A heading inside a folded part keeps its own state for when the
+ * part is opened again.
+ *
+ * @param blocks for each block: the level of the heading it is, or 0, and whether that heading is folded
+ */
+export function hiddenBlocks(blocks: readonly { level: number; isFolded: boolean }[]): boolean[] {
+  /** The level of the folded heading that hides what comes now, or 0 */
+  let under = 0;
+  return blocks.map(({ level, isFolded }) => {
+    if (level > 0 && (under === 0 || level <= under)) {
+      under = isFolded ? level : 0;
+      return false;
+    }
+    return under > 0;
+  });
+}
+
+/**
+ * Lets the headings of a note be folded, as in the reading view of Obsidian:
+ * a triangle before a heading folds what is under it. Only the headings of
+ * the note itself, which are the blocks at its top level.
+ */
+export function addFolding(sizer: HTMLElement, triangle: string): void {
+  const apply = (): void => {
+    const blocks = Array.from(sizer.children);
+    const hidden = hiddenBlocks(blocks.map((block) => ({ level: levelOf(block), isFolded: block.classList.contains("is-collapsed") })));
+    for (const [at, block] of blocks.entries()) {
+      block.classList.toggle(FOLDED, hidden[at] === true);
+    }
+  };
+  for (const heading of Array.from(sizer.children)) {
+    if (levelOf(heading) === 0) {
+      continue;
+    }
+    const indicator = el("div", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } });
+    indicator.innerHTML = triangle;
+    indicator.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isFolded = heading.classList.toggle("is-collapsed");
+      indicator.classList.toggle("is-collapsed", isFolded);
+      apply();
+    });
+    heading.prepend(indicator);
+  }
+}

@@ -184,6 +184,79 @@ video.v2s-left-out {
   display: none;
 }
 
+/* ---- Graphs ---- */
+
+.v2s-graph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-interface, sans-serif);
+}
+
+.v2s-graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.v2s-graph-canvas.is-over-note {
+  cursor: pointer;
+}
+
+.v2s-local-graph {
+  height: 240px;
+  margin: 0 4px;
+  border: 1px solid var(--background-modifier-border, #ddd);
+  border-radius: var(--radius-m, 8px);
+  background-color: var(--background-primary, #fff);
+}
+
+.v2s-graph-modal {
+  width: min(1100px, 94vw);
+  height: min(800px, 88vh);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.v2s-graph-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
+/* ---- What a folded heading hides ---- */
+
+.v2s-folded {
+  display: none !important;
+}
+
+/* ---- The note of a link, shown while the pointer rests on the link ---- */
+
+.v2s-popover {
+  position: fixed;
+  z-index: 40;
+  width: min(450px, 90vw);
+  max-height: min(400px, 60vh);
+  overflow: hidden;
+}
+
+.v2s-popover .markdown-embed,
+.v2s-popover .markdown-embed-content {
+  height: 100%;
+  max-height: inherit;
+}
+
+.v2s-popover .markdown-preview-view {
+  max-height: min(400px, 60vh);
+  overflow-y: auto;
+}
+
 /* ---- Search ---- */
 
 .v2s-modal .suggestion-note {

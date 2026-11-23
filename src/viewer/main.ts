@@ -1,7 +1,10 @@
 import type { NotePage, SiteGlobal, SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, type Haystack } from "./find.ts";
+import { addFolding } from "./fold.ts";
+import { graphView } from "./graph.ts";
 import { copyText, fileView, noteNodes, propertiesView, titleOf } from "./note.ts";
+import { watchPreviews } from "./preview.ts";
 import { createSearch } from "./search.ts";
 import { buildTree, firstNote, treeView } from "./tree.ts";
 
@@ -66,10 +69,13 @@ function start(index: SiteIndex): void {
     kept.set("theme", theme);
     applyTheme();
   });
+  /** What is told when the look changes: the graphs paint with its colors */
+  const onLook: (() => void)[] = [];
   const applyTheme = (): void => {
     body.classList.toggle("theme-dark", theme === "dark");
     body.classList.toggle("theme-light", theme !== "dark");
     setIcon(themeButton, icons, theme === "dark" ? "sun" : "moon", "Dark or light");
+    onLook.forEach((tell) => tell());
   };
   applyTheme();
 
@@ -123,6 +129,53 @@ function start(index: SiteIndex): void {
   const outline = el("div", { cls: "v2s-pane-body" });
   const backlinks = el("div", { cls: "v2s-pane-body" });
 
+  // ---- Graphs: the one of the note that is open, at the side, and the one of the whole site ----
+  // A color is a variable of the style sheets of Obsidian. An element is given it, and the browser says what it paints.
+  const probe = el("span", { attr: { style: "display: none" } });
+  body.appendChild(probe);
+  const graphHost = {
+    linksOf: (id: string): readonly string[] => index.notes[id]?.l ?? [],
+    titleOf: (id: string): string => titleOf(index.notes[id]?.p ?? ""),
+    color(variable: string, fallback: string): string {
+      probe.style.color = `var(${variable}, ${fallback})`;
+      return getComputedStyle(probe).color;
+    },
+  };
+  const localGraph = graphView({
+    ...graphHost,
+    go(id) {
+      window.location.hash = "#/" + id;
+    },
+  });
+  onLook.push(() => localGraph.repaint());
+  const openGraph = (): void => {
+    const whole = graphView({
+      ...graphHost,
+      go(id) {
+        closeGraph();
+        window.location.hash = "#/" + id;
+      },
+    });
+    const closeGraph = (): void => {
+      whole.stop();
+      modal.remove();
+      window.removeEventListener("keydown", onKey);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        closeGraph();
+      }
+    };
+    const bg = el("div", { cls: "modal-bg" });
+    const closeButton = iconButton(icons, "x", "Close", closeGraph);
+    closeButton.classList.add("v2s-graph-close");
+    const modal = el("div", { cls: "modal-container mod-dim v2s-modal" }, [bg, el("div", { cls: "modal v2s-graph-modal" }, [closeButton, whole.el])]);
+    bg.addEventListener("click", closeGraph);
+    window.addEventListener("keydown", onKey);
+    body.appendChild(modal);
+    whole.show(Object.keys(index.notes), current === "" ? null : current);
+  };
+
   const left = el("div", { cls: "v2s-left" }, [
     el("div", { cls: "v2s-left-top" }, [el("div", { cls: "v2s-vault-name", text: index.name }), iconButton(icons, "search", "Search", () => search.open("")), themeButton]),
     tree.el,
@@ -132,6 +185,8 @@ function start(index: SiteIndex): void {
     outline,
     el("div", { cls: "v2s-pane-title", text: "Backlinks" }),
     backlinks,
+    el("div", { cls: "v2s-pane-title", text: "Graph" }),
+    el("div", { cls: "v2s-local-graph" }, [localGraph.el]),
   ]);
   const main = el("div", { cls: "v2s-main" }, [
     el("div", { cls: "view-header" }, [
@@ -139,6 +194,7 @@ function start(index: SiteIndex): void {
       el("div", { cls: "view-header-title-container mod-at-start" }, [titleParent, title]),
       el("div", { cls: "view-actions" }, [
         iconButton(icons, "search", "Search", () => search.open("")),
+        iconButton(icons, "git-fork", "Graph of the site", openGraph),
         iconButton(icons, "sidebar-right", "Outline and backlinks", () => toggle("right")),
       ]),
     ]),
@@ -201,6 +257,7 @@ function start(index: SiteIndex): void {
       titleParent.textContent = "";
       drawOutline([]);
       backlinks.replaceChildren();
+      localGraph.show([], null);
       return;
     }
     const slash = path.lastIndexOf("/");
@@ -234,8 +291,10 @@ function start(index: SiteIndex): void {
     }
     sizer.replaceChildren(...parts);
     current = id;
+    addFolding(sizer, icons["right-triangle"] ?? "");
     drawOutline(headings);
     drawBacklinks(id);
+    drawLocalGraph(id);
 
     const target = heading !== "" ? headingEl(heading) : find !== "" ? textEl(find) : null;
     if (target !== null) {
@@ -290,6 +349,12 @@ function start(index: SiteIndex): void {
         return el("div", { cls: "tree-item" }, [row]);
       }),
     );
+  };
+
+  /** The note that is open with the notes it links to and the notes that link to it */
+  const drawLocalGraph = (id: string): void => {
+    const around = index.notes[id] === undefined ? [] : [...new Set([id, ...(index.notes[id]?.l ?? []), ...(linkedFrom.get(id) ?? [])])];
+    localGraph.show(around, id);
   };
 
   const drawBacklinks = (id: string): void => {
@@ -363,6 +428,11 @@ function start(index: SiteIndex): void {
   };
   app.addEventListener("mouseover", ahead, { passive: true });
   app.addEventListener("touchstart", ahead, { passive: true });
+
+  watchPreviews(app, {
+    isNote: (id) => index.notes[id] !== undefined,
+    load: loadNote,
+  });
 
   // Where a note is scrolled to is kept with its place in the history of the browser
   let noting = 0;
