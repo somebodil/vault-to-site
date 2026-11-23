@@ -3,7 +3,7 @@
 An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into a website to read them: one zip archive, with an `index.html` in it that you open with a browser. The site looks like your vault, because Obsidian itself draws every note for it, and it cannot be edited.
 
 - **It opens from a file.** Unpack the archive and double-click `index.html`: no server, no network. The same files also work on a web server or on GitHub Pages as they are.
-- **You choose what goes in.** Tick folders and notes in a tree, leave paths out with regular expressions, and leave notes out by a property.
+- **You choose what goes in.** Tick folders and notes in a tree, leave paths out with regular expressions, and leave notes out by a property. Pictures and other files are not chosen: they come with the notes that use them.
 - **Nothing gets in unseen.** Before a build you look over the list of every note that goes in, and of what was kept out and why.
 - **It runs on a phone.** A build is one file that you can share from there.
 
@@ -60,13 +60,9 @@ Three things decide, in this order. A later one always wins over an earlier one.
 
    **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
-Pictures and other files that are not notes follow the notes that use them:
+**Ticks are for notes.** A picture or another file that is not a note is never chosen by a tick, and it is not in the tree. It goes into the site when a note of the site uses it, and only then. So ticking the whole vault does not put the pictures of a private note into the site, nor a file that lies in a folder of private notes and that no note links to. To have a file in the site, link to it or embed it in a note of the site.
 
-- **A file comes along** when a note of the site uses it, ticked or not. A note never comes along that way.
-- **A file stays out** when notes use it but none of the site does, even when it is ticked. So ticking a whole folder of pictures does not put the pictures of a private note into the site.
-- **A ticked file that no note uses goes in.** It was asked for on its own.
-
-In the tree, a ticked note or file that a rule keeps out is crossed out, with the rule beside it.
+In the tree, a ticked note that a rule keeps out is crossed out, with the rule beside it.
 
 ## What keeps a note out of the site
 
@@ -75,7 +71,7 @@ A note that is not part of the site leaves nothing in it:
 - It is not in the list of files, not in the search, and not among the backlinks.
 - **An embed of it is emptied,** also an embed inside an embedded note. Obsidian puts the text of an embedded note into the note that embeds it. The build takes it out again, and the site says "Not part of this site" in its place.
 - **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link. Where the link led is removed, and the search finds only the words that show.
-- **Its pictures stay out with it,** as told above.
+- **Its pictures stay out with it,** unless a note of the site uses them too.
 
 The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. A style rule of a plugin that names a folder or a note of the vault is not copied.
 

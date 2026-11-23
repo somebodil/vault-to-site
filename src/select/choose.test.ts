@@ -10,6 +10,7 @@ const files: VaultFile[] = [
   { path: "Guide/Draft.md", isNote: true, properties: { publish: false } },
   { path: "Private/Secrets.md", isNote: true, properties: { type: "private" }, uses: ["Attachments/secret.png"] },
   { path: "Private/Ledger.md", isNote: true },
+  { path: "Private/statement.csv", isNote: false },
   { path: "Attachments/pic.png", isNote: false },
   { path: "Attachments/scan.pdf", isNote: false },
   { path: "Attachments/secret.png", isNote: false },
@@ -31,7 +32,6 @@ describe("choose", () => {
     const choice = choose(files, rules(["Home.md", "Guide"]));
     assert.deepEqual(choice.notes, ["Guide/Setup.md", "Home.md"]);
     assert.deepEqual(choice.files, ["Attachments/pic.png", "Attachments/scan.pdf"]);
-    assert.deepEqual(choice.pulledIn, ["Attachments/pic.png", "Attachments/scan.pdf"]);
   });
 
   it("keeps a note with a property of the rules out, whatever is ticked", () => {
@@ -47,9 +47,25 @@ describe("choose", () => {
     );
   });
 
-  it("does not pull in what only a note that is kept out uses", () => {
-    const choice = choose(files, rules(["Home.md", "Private/Secrets.md"]));
-    assert.equal(choice.files.includes("Attachments/secret.png"), false);
+  it("takes no file by a tick: with the whole vault ticked, only what a note of the site uses goes in", () => {
+    const choice = choose(files, rules([""]));
+    assert.deepEqual(choice.files, ["Attachments/pic.png", "Attachments/scan.pdf"]);
+    // Not the picture of the private note, not the file in the folder of private notes, not the picture that no note uses
+    for (const path of ["Attachments/secret.png", "Private/statement.csv", "Attachments/unused.png"]) {
+      assert.equal(choice.files.includes(path), false, path);
+    }
+  });
+
+  it("takes no file that is ticked by its own path either", () => {
+    const choice = choose(files, rules(["Attachments/unused.png", "Private/statement.csv", "Attachments"]));
+    assert.deepEqual(choice.notes, []);
+    assert.deepEqual(choice.files, []);
+  });
+
+  it("does not take a file that only a note outside the site uses", () => {
+    const choice = choose(files, rules(["Guide"]));
+    assert.deepEqual(choice.notes, ["Guide/Setup.md"]);
+    assert.deepEqual(choice.files, []);
   });
 
   it("never pulls in a note, and says which links are cut", () => {
@@ -63,44 +79,23 @@ describe("choose", () => {
   it("lets a pattern win over a tick, for notes and for files that are used", () => {
     const choice = choose(files, rules([""], [], "^Private/, \\.pdf$"));
     assert.deepEqual(choice.notes, ["Guide/Setup.md", "Home.md"]);
-    assert.equal(choice.files.includes("Attachments/scan.pdf"), false);
+    assert.deepEqual(choice.files, ["Attachments/pic.png"]);
     assert.deepEqual(choice.byPattern, ["Attachments/scan.pdf", "Private/Ledger.md", "Private/Secrets.md"]);
     // A note kept out by a pattern is not also listed for its property
-    assert.deepEqual(choice.byProperty.map((x) => x.path), ["Guide/Draft.md"]);
-  });
-
-  it("reports a file that a pattern keeps from a note that uses it", () => {
-    const choice = choose(files, rules(["Home.md"], [], "\\.pdf$"));
-    assert.deepEqual(choice.byPattern, ["Attachments/scan.pdf"]);
-    assert.equal(choice.cut.some((x) => x.to === "Attachments/scan.pdf"), true);
-  });
-
-  it("takes a ticked file that no note uses", () => {
-    const choice = choose(files, rules(["Attachments/unused.png"]));
-    assert.deepEqual(choice.files, ["Attachments/unused.png"]);
-    assert.deepEqual(choice.pulledIn, []);
-  });
-
-  it("keeps a ticked file out when only notes outside the site use it", () => {
-    // The whole vault is ticked: the picture of the private note must not get in as a file of its own
-    const choice = choose(files, rules([""]));
-    assert.equal(choice.files.includes("Attachments/secret.png"), false);
-    assert.deepEqual(choice.withNotes, ["Attachments/secret.png"]);
-    assert.deepEqual(choice.files, ["Attachments/pic.png", "Attachments/scan.pdf", "Attachments/unused.png"]);
-    assert.deepEqual(choice.pulledIn, []);
-  });
-
-  it("keeps a ticked file out when the note that uses it is not ticked", () => {
-    const choice = choose(files, rules(["Attachments", "Guide"]));
-    assert.deepEqual(choice.notes, ["Guide/Setup.md"]);
-    assert.deepEqual(choice.files, ["Attachments/unused.png"]);
-    assert.deepEqual(choice.withNotes, ["Attachments/pic.png", "Attachments/scan.pdf", "Attachments/secret.png"]);
+    assert.deepEqual(
+      choice.byProperty.map((x) => x.path),
+      ["Guide/Draft.md"],
+    );
+    assert.equal(
+      choice.cut.some((x) => x.to === "Attachments/scan.pdf"),
+      true,
+    );
   });
 
   it("leaves a folder out of a ticked folder", () => {
-    const choice = choose(files, rules([""], ["Private", "Attachments"]));
+    const choice = choose(files, rules([""], ["Private"]));
     assert.deepEqual(choice.notes, ["Guide/Setup.md", "Home.md"]);
-    assert.deepEqual(choice.pulledIn, ["Attachments/pic.png", "Attachments/scan.pdf"]);
+    assert.deepEqual(choice.byProperty.map((x) => x.path), ["Guide/Draft.md"]);
   });
 
   it("keeps a note out whose properties are not known, and says why", () => {
@@ -118,10 +113,9 @@ describe("choose", () => {
     ]);
     // The picture that only such a note uses stays out with it
     assert.deepEqual(choice.files, []);
-    assert.deepEqual(choice.withNotes, ["pic.png"]);
   });
 
-  it("keeps a canvas or a base out, ticked or used by a note", () => {
+  it("keeps a canvas or a base out, and cuts the link to it", () => {
     const some: VaultFile[] = [
       { path: "a.md", isNote: true, uses: ["Board.canvas", "pic.png"] },
       { path: "Board.canvas", isNote: false, undrawn: true },
@@ -130,10 +124,7 @@ describe("choose", () => {
     ];
     const choice = choose(some, rules([""]));
     assert.deepEqual(choice.files, ["pic.png"]);
-    assert.deepEqual(choice.undrawn, ["Board.canvas", "Rows.base"]);
     assert.deepEqual(choice.cut, [{ from: "a.md", to: "Board.canvas" }]);
-    assert.deepEqual(choose(some, rules(["a.md"])).undrawn, []);
-    assert.deepEqual(choose(some, rules(["a.md"])).files, ["pic.png"]);
   });
 
   it("names every note a rule is meant for, ticked or not", () => {

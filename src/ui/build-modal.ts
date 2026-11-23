@@ -71,12 +71,13 @@ export class BuildModal extends Modal {
     this.setTitle("Build a site");
     contentEl.createEl("p", {
       cls: "vault-to-site-lead",
-      text: "Tick the folders and notes that go into the site. Pictures and other files that a ticked note uses come along.",
+      text: "Tick the folders and notes that go into the site. Pictures and other files are not ticked: they come with the notes that use them.",
     });
 
     let files: VaultFile[] = [];
+    let notes: VaultFile[] = [];
     let root: Folder = toTree([]);
-    /** Ticked paths that a rule keeps out, with the rule */
+    /** Ticked notes that a rule keeps out, with the rule */
     let keptOut = new Map<string, string>();
     const summary = contentEl.createDiv({ cls: "vault-to-site-summary" });
     const treeEl = contentEl.createDiv({ cls: "vault-to-site-tree" });
@@ -86,9 +87,7 @@ export class BuildModal extends Modal {
     const plan = (): void => {
       const { choice, hasInvalidPattern } = planSite(this.app, this.settings, files);
       keptOut = new Map<string, string>([
-        ...choice.withNotes.map((path): [string, string] => [path, "its notes are out"]),
         ...choice.unread.map((x): [string, string] => [x.path, "not read"]),
-        ...choice.undrawn.map((path): [string, string] => [path, "cannot be drawn"]),
         ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
         ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
       ]);
@@ -112,7 +111,7 @@ export class BuildModal extends Modal {
       const isTicked = ticker(this.settings.ticks);
       // How many files are ticked inside each folder, in one pass over the files
       const ticked = new Map<string, number>();
-      for (const file of files) {
+      for (const file of notes) {
         if (!isTicked(file.path)) {
           continue;
         }
@@ -201,7 +200,9 @@ export class BuildModal extends Modal {
     /** Reads the files of the vault again: what a build writes is not among them, so they change with where it writes */
     const readFiles = (): void => {
       files = readVault(this.app, this.settings);
-      root = toTree(files.map((file) => file.path));
+      // Only notes are ticked, so only notes are in the tree
+      notes = files.filter((file) => file.isNote);
+      root = toTree(notes.map((file) => file.path));
       plan();
       drawTree();
     };
@@ -337,12 +338,7 @@ export class BuildModal extends Modal {
     };
 
     list("Notes in the site", choice.notes, true);
-    const pulled = new Set(choice.pulledIn);
-    list(
-      "Other files in the site",
-      choice.files.map((path) => (pulled.has(path) ? path + "  (used by a note)" : path)),
-      false,
-    );
+    list("Pictures and other files that these notes use", choice.files, false);
     if (choice.byProperty.length > 0) {
       list(
         "Kept out by a property",
@@ -361,28 +357,12 @@ export class BuildModal extends Modal {
         "A rule may be meant for these notes, and it cannot be checked. A note that Obsidian has not read yet is read a moment later: go back and look again. Properties that cannot be read have a mistake in them.",
       );
     }
-    if (choice.undrawn.length > 0) {
-      list(
-        "Kept out because the site cannot draw them",
-        choice.undrawn,
-        false,
-        "A canvas or a base is drawn by Obsidian from what is in it. As a plain file it would only carry the paths and the text it holds.",
-      );
-    }
-    if (choice.withNotes.length > 0) {
-      list(
-        "Kept out with the notes that use them",
-        choice.withNotes,
-        false,
-        "These files are ticked, but only notes that are not in the site use them. So they stay out too.",
-      );
-    }
     if (choice.cut.length > 0) {
       list(
         "Links and embeds that are cut",
         cutLines(choice),
         true,
-        "These notes of the site point to something that is not in it. An embed is emptied and a link leads nowhere. The words of a link stay as the note shows them.",
+        "These notes of the site point to something that is not in it: a note that is not ticked or that a rule keeps out, or a canvas or a base, which the site cannot draw. An embed is emptied and a link leads nowhere. The words of a link stay as the note shows them.",
       );
     }
 
