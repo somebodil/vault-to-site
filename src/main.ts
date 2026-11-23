@@ -1,6 +1,7 @@
 import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
 import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
+import { buildAgain } from "./build/again.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
 const ICON = "book-open-check";
@@ -25,6 +26,18 @@ export default class VaultToSitePlugin extends Plugin {
       this.dialog.open();
     };
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: open });
+    this.addCommand({
+      id: "build-again",
+      name: "Build again without the dialog",
+      icon: ICON,
+      callback: () =>
+        void buildAgain(this.app, this.config, this.manifest.version, async (place) => {
+          if (!this.config.written.includes(place)) {
+            this.config.written = [...this.config.written, place];
+            await this.saveData(this.config);
+          }
+        }),
+    });
     this.addRibbonIcon(ICON, "Build a site", open);
 
     // What is ticked and what was written is kept by path. A folder or file that gets another name is followed.

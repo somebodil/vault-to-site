@@ -145,6 +145,44 @@ describe("choose", () => {
   });
 });
 
+describe("choose with only marked notes", () => {
+  const some: VaultFile[] = [
+    { path: "a.md", isNote: true, properties: { publish: true }, uses: ["pic.png", "b.md"] },
+    { path: "b.md", isNote: true, uses: ["other.png"] },
+    { path: "c.md", isNote: true, properties: { publish: "true", type: "private" } },
+    { path: "d.md", isNote: true, properties: { publish: false } },
+    { path: "e.md", isNote: true, unread: "its properties cannot be read" },
+    { path: "pic.png", isNote: false },
+    { path: "other.png", isNote: false },
+  ];
+  const marked = (only: string): ChoiceRules => ({ ...rules([""]), only: parsePropertyRules(only) });
+
+  it("takes in a ticked note only when it has the mark", () => {
+    const choice = choose(some, marked("publish: true"));
+    assert.deepEqual(choice.notes, ["a.md"]);
+    assert.deepEqual(choice.unmarked, ["b.md"]);
+    // Only the files of the notes that go in
+    assert.deepEqual(choice.files, ["pic.png"]);
+    assert.deepEqual(choice.cut, [{ from: "a.md", to: "b.md" }]);
+  });
+
+  it("lets a rule that keeps out win over the mark", () => {
+    const choice = choose(some, marked("publish: true"));
+    assert.deepEqual(choice.byProperty.map((x) => x.path), ["c.md", "d.md"]);
+    assert.deepEqual(choice.unread.map((x) => x.path), ["e.md"]);
+  });
+
+  it("takes a key alone for every note that has the property", () => {
+    assert.deepEqual(choose(some, { ...rules([""]), properties: [], only: parsePropertyRules("publish:") }).notes, ["a.md", "c.md", "d.md"]);
+  });
+
+  it("takes every ticked note when there is no such rule", () => {
+    const choice = choose(some, marked(""));
+    assert.deepEqual(choice.notes, ["a.md", "b.md"]);
+    assert.deepEqual(choice.unmarked, []);
+  });
+});
+
 describe("signatureOf", () => {
   it("is the same for the same notes and files, and another for others", () => {
     const one = choose(files, rules(["Home.md", "Guide"]));

@@ -29,6 +29,24 @@ What a build has written is never part of a site, also after you give the archiv
 
 If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
 
+## Building without the dialog
+
+The dialog is where you look over what goes in. A build without it is there for two cases, and in neither is that lost.
+
+- **Again, as it was.** The command **Build again without the dialog** builds the site you looked over last. When other notes or files would go in now, it builds nothing and sends you to the dialog.
+- **By a program.** [obsidian-cmd-runner](https://github.com/somebodil/obsidian-cmd-runner) starts Obsidian without its window, on a build server after a push or from a script, and runs the same command there. Nobody looks then, so what goes in is said in a file, and should be said by a mark on each note:
+
+  ```json
+  {
+    "ticks": { "on": [""] },
+    "only": "publish: true",
+    "format": "folder",
+    "folder": "_site"
+  }
+  ```
+
+  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
+
 ## What the site has
 
 - **The files** on the left, in folders, as in the file explorer
@@ -61,6 +79,7 @@ Three things decide, in this order. A later one always wins over an earlier one.
 3. **Leave out by property.** One property a line, as `key: value`. A note that has one of them stays out. To begin with these are `type: private` and `publish: false`. A key alone, as `draft:`, is every note that has that property, whatever it holds.
 
    A pattern that is not a regular expression, or a line that is not a property, keeps nothing out. The dialog says which one it is, and no site is built until it is corrected or taken out.
+4. **Take in only by property.** One property a line, as `publish: true`. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that is built with nobody looking the list over: a note does not go in by being new.
 
    **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 

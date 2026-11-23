@@ -25,6 +25,8 @@ export interface ChoiceRules {
   ticks: Ticks;
   exclude: ExcludeRules;
   properties: readonly PropertyRule[];
+  /** When there is one, only a note with one of these properties goes in */
+  only?: readonly PropertyRule[];
 }
 
 /** What goes into the site, and what was kept out of it and why */
@@ -39,6 +41,8 @@ export interface Choice {
   byPattern: string[];
   /** Ticked notes whose properties are not known, and why. They stay out: a rule may be meant for them. */
   unread: { path: string; why: string }[];
+  /** Ticked notes that are not marked for the site, when only marked notes go in */
+  unmarked: string[];
   /** Links and embeds from a note of the site to something that is not in it */
   cut: { from: string; to: string }[];
   /** Every note of the vault that a rule is meant for, ticked or not: the notes whose names should not show */
@@ -50,7 +54,10 @@ export interface Choice {
  *
  * Ticks are for notes. A pattern or a property always wins over a tick, and
  * a note whose properties are not known stays out as well: it cannot be said
- * that no rule is meant for it.
+ * that no rule is meant for it. Where only marked notes go in, a ticked note
+ * needs the mark as well: a property as `publish: true`. That is the way for
+ * a site that is built with nobody looking the list over, where a new note
+ * must not go in by being new.
  *
  * A file that is not a note is never chosen by a tick. It goes in when a
  * note of the site uses it, and only then: a note without its pictures is
@@ -73,6 +80,8 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
   const byPattern = new Set<string>();
   const byProperty: Choice["byProperty"] = [];
   const unread: Choice["unread"] = [];
+  const unmarked: string[] = [];
+  const only = rules.only ?? [];
   const guarded: string[] = [];
 
   for (const file of files) {
@@ -93,6 +102,8 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
       byProperty.push({ path: file.path, rule });
     } else if (file.unread !== undefined) {
       unread.push({ path: file.path, why: file.unread });
+    } else if (only.length > 0 && matchingRule(file.properties, only) === null) {
+      unmarked.push(file.path);
     } else {
       notes.add(file.path);
     }
@@ -128,6 +139,7 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
     byProperty: byProperty.sort(byPathOrder),
     byPattern: sorted(byPattern),
     unread: unread.sort(byPathOrder),
+    unmarked: unmarked.sort(),
     // The plain order, as for the notes: this runs at every tick in the dialog, and with tens of thousands of links the order of a language costs most of it
     cut: cut.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0)),
     guarded: sorted(guarded),

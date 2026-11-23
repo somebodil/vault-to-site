@@ -60,8 +60,9 @@ export function planSite(app: App, settings: Settings, files: readonly VaultFile
     ticks: settings.ticks,
     exclude,
     properties: parsePropertyRules(settings.properties),
+    only: parsePropertyRules(settings.only),
   });
-  const invalid = invalidPropertyLines(settings.properties).map((line) => `"${line}" is not a property: write it as key: value.`);
+  const invalid = [...invalidPropertyLines(settings.properties), ...invalidPropertyLines(settings.only)].map((line) => `"${line}" is not a property: write it as key: value.`);
   if (exclude.hasInvalid) {
     invalid.unshift("A pattern is not a valid regular expression.");
   }

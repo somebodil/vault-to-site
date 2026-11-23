@@ -88,6 +88,7 @@ export class BuildModal extends Modal {
     const plan = (): void => {
       const { choice, invalid } = planSite(this.app, this.settings, files);
       keptOut = new Map<string, string>([
+        ...choice.unmarked.map((path): [string, string] => [path, "not marked"]),
         ...choice.unread.map((x): [string, string] => [x.path, "not read"]),
         ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
         ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
@@ -245,6 +246,25 @@ export class BuildModal extends Modal {
         });
       });
 
+    new Setting(contentEl)
+      .setName("Take in only by property")
+      .setDesc("One property a line, as publish: true. When there is one, a ticked note goes in only with such a property. Empty for every ticked note.")
+      .addTextArea((area) => {
+        area.setValue(this.settings.only);
+        area.inputEl.rows = 2;
+        const mark = (): void => {
+          area.inputEl.toggleClass("vault-to-site-invalid", invalidPropertyLines(area.getValue()).length > 0);
+        };
+        mark();
+        area.onChange((value) => {
+          this.change((settings) => {
+            settings.only = value;
+          });
+          mark();
+          afterTyping();
+        });
+      });
+
     const place = new Setting(contentEl);
     const drawPlace = (): void => {
       const isZip = this.settings.format === "zip";
@@ -355,6 +375,9 @@ export class BuildModal extends Modal {
     if (choice.byPattern.length > 0) {
       list("Kept out by a pattern", choice.byPattern, false);
     }
+    if (choice.unmarked.length > 0) {
+      list("Not marked for the site", choice.unmarked, false, "Only a note with one of the properties under Take in only by property goes in.");
+    }
     if (choice.unread.length > 0) {
       list(
         "Kept out because their properties are not known",
@@ -462,6 +485,9 @@ export class BuildModal extends Modal {
         },
         this.stop,
       );
+      // The site that was looked over: a build without the dialog gives this one again, and no other
+      this.settings.reviewed = reviewed;
+      await this.host.save();
       const lines = [
         `${count(result.notes, "note")} and ${count(result.files, "other file")}, ${size(result.bytes)}, in ${(result.millis / 1000).toFixed(1)} seconds.`,
         this.settings.format === "zip"

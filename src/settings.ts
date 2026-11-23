@@ -13,6 +13,11 @@ export interface Settings {
   exclude: string;
   /** `key: value` a line: a note with one of these properties is left out */
   properties: string;
+  /**
+   * `key: value` a line: when there is one, only a note with one of these
+   * properties goes in, as `publish: true`. Empty for every ticked note.
+   */
+  only: string;
   format: Format;
   /** The archive a site is written to, from the root of the vault */
   zip: string;
@@ -24,18 +29,25 @@ export interface Settings {
    * also notes that are private now.
    */
   written: string[];
+  /**
+   * The sign of the choice that was looked over and built last (`signatureOf`).
+   * A build without the dialog is done only when the site would be that one.
+   */
+  reviewed: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   ticks: NO_TICKS,
   exclude: "",
   properties: DEFAULT_PROPERTY_RULES,
+  only: "",
   format: "zip",
   // One file in plain sight: it can be shared from a phone, and Obsidian does not list a file it cannot open
   zip: "vault-to-site.zip",
   // Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of the vault
   folder: ".vault-to-site",
   written: [],
+  reviewed: "",
 };
 
 /**
@@ -84,7 +96,7 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
 /** Reads what was saved, and takes the default for what is missing or of the wrong kind */
 export function readSettings(saved: unknown): Settings {
   const data = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
-  const text = (key: "exclude" | "properties"): string => {
+  const text = (key: "exclude" | "properties" | "only" | "reviewed"): string => {
     const value = data[key];
     return typeof value === "string" ? value : DEFAULT_SETTINGS[key];
   };
@@ -98,9 +110,11 @@ export function readSettings(saved: unknown): Settings {
     ticks: { on: paths(ticks.on), off: paths(ticks.off) },
     exclude: text("exclude"),
     properties: text("properties"),
+    only: text("only"),
     format: data.format === "folder" ? "folder" : "zip",
     zip: path("zip"),
     folder: path("folder"),
     written: paths(data.written),
+    reviewed: text("reviewed"),
   };
 }
