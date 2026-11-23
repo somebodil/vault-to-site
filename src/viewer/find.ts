@@ -38,6 +38,25 @@ export function nameScore(query: string, name: string): number {
   return 1;
 }
 
+/** The text of a note, ready to be searched many times */
+export interface Haystack {
+  id: string;
+  /** The text as it is shown */
+  text: string;
+  /** The same text in lower case, letter for letter */
+  folded: string;
+}
+
+/**
+ * Lower case is made once for a note, not at every key. In a few scripts a
+ * letter changes its length in lower case; then the lower case is shown too,
+ * so that a place in one is the same place in the other.
+ */
+export function haystack(id: string, text: string): Haystack {
+  const folded = fold(text);
+  return { id, text: folded.length === text.length ? text : folded, folded };
+}
+
 export interface LineHit {
   /** The line, cut to what fits a row, with the place of the match in it */
   text: string;
@@ -47,54 +66,63 @@ export interface LineHit {
 
 const ROW = 120;
 
+function cut(line: string, at: number, length: number): LineHit {
+  // A line starts after its indent. A line too long for a row starts a little before the match.
+  const indent = line.length - line.trimStart().length;
+  const from = line.length - indent > ROW ? Math.max(indent, Math.min(at - 30, line.length - ROW)) : indent;
+  const isCut = from > indent;
+  const shift = isCut ? 1 : 0;
+  return {
+    text: (isCut ? "…" : "") + line.slice(from, from + ROW - shift),
+    start: at - from + shift,
+    end: at - from + length + shift,
+  };
+}
+
 /**
  * The lines of a text that hold what was typed, as it was typed. When no line
  * does and several words were typed, the lines that hold all of the words.
+ * A line is given once, and the text is not taken apart into lines to find them.
  */
-export function findLines(query: string, text: string, limit: number): LineHit[] {
+export function findLines(query: string, hay: Haystack, limit: number): LineHit[] {
   const q = fold(query.trim());
   if (q === "") {
     return [];
   }
-  const lines = text.split("\n");
+  const { text, folded } = hay;
   const hits: LineHit[] = [];
-  const add = (line: string, at: number, length: number): void => {
-    // A line starts after its indent. A line too long for a row starts a little before the match.
-    const indent = line.length - line.trimStart().length;
-    const from = line.length - indent > ROW ? Math.max(indent, Math.min(at - 30, line.length - ROW)) : indent;
-    const isCut = from > indent;
-    const shift = isCut ? 1 : 0;
-    hits.push({
-      text: (isCut ? "…" : "") + line.slice(from, from + ROW - shift),
-      start: at - from + shift,
-      end: at - from + length + shift,
-    });
-  };
-  for (const line of lines) {
-    const at = fold(line).indexOf(q);
-    if (at !== -1) {
-      add(line, at, q.length);
-      if (hits.length === limit) {
-        return hits;
+  /** Walks the lines that hold `needle`, until `take` has enough */
+  const scan = (needle: string, take: (start: number, end: number, at: number) => void): void => {
+    let from = 0;
+    while (hits.length < limit) {
+      const at = folded.indexOf(needle, from);
+      if (at === -1) {
+        return;
       }
+      const start = folded.lastIndexOf("\n", at) + 1;
+      const next = folded.indexOf("\n", at);
+      const end = next === -1 ? folded.length : next;
+      take(start, end, at);
+      from = end + 1;
     }
-  }
+  };
+
+  scan(q, (start, end, at) => {
+    hits.push(cut(text.slice(start, end), at - start, q.length));
+  });
   if (hits.length > 0) {
     return hits;
   }
   const words = q.split(/\s+/).filter((word) => word !== "");
-  if (words.length < 2) {
+  const first = words[0];
+  if (first === undefined || words.length < 2) {
     return hits;
   }
-  for (const line of lines) {
-    const folded = fold(line);
-    if (words.every((word) => folded.includes(word))) {
-      const first = words[0] ?? "";
-      add(line, folded.indexOf(first), first.length);
-      if (hits.length === limit) {
-        break;
-      }
+  scan(first, (start, end, at) => {
+    const line = folded.slice(start, end);
+    if (words.every((word) => line.includes(word))) {
+      hits.push(cut(text.slice(start, end), at - start, first.length));
     }
-  }
+  });
   return hits;
 }

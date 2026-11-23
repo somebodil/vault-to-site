@@ -72,40 +72,54 @@ export interface TreeView {
   show(id: string): void;
 }
 
-/** Draws the tree with the classes of the file explorer of Obsidian, so that it gets its look */
-export function treeView(root: Folder, triangle: string, open: Set<string>, onToggle: () => void): TreeView {
+/**
+ * Draws the tree with the classes of the file explorer of Obsidian, so that
+ * it gets its look. The rows of a folder are made when the folder is opened
+ * for the first time: a site of thousands of notes starts with the few rows
+ * that are seen.
+ */
+export function treeView(root: Folder, index: SiteIndex, triangle: string, open: Set<string>, onToggle: () => void): TreeView {
   const rows = new Map<string, HTMLElement>();
-  const folderEls = new Map<string, HTMLElement>();
-  const parents = new Map<string, string[]>();
+  /** For every folder: its element, the place of its rows, and whether they were made */
+  const drawn = new Map<string, { item: HTMLElement; children: HTMLElement; folder: Folder; isMade: boolean }>();
 
-  const setOpen = (folder: HTMLElement, isOpen: boolean): void => {
-    folder.classList.toggle("is-collapsed", !isOpen);
-    folder.querySelector(":scope > .tree-item-self > .collapse-icon")?.classList.toggle("is-collapsed", !isOpen);
+  const setOpen = (path: string, isOpen: boolean): void => {
+    const entry = drawn.get(path);
+    if (entry === undefined) {
+      return;
+    }
+    if (isOpen && !entry.isMade) {
+      fill(entry.children, entry.folder);
+      entry.isMade = true;
+    }
+    entry.item.classList.toggle("is-collapsed", !isOpen);
+    entry.item.querySelector(":scope > .tree-item-self > .collapse-icon")?.classList.toggle("is-collapsed", !isOpen);
+    if (isOpen) {
+      open.add(path);
+    } else {
+      open.delete(path);
+    }
   };
 
-  const draw = (folder: Folder, above: string[]): HTMLElement => {
-    const children = el("div", { cls: "tree-item-children nav-folder-children" });
+  const fill = (children: HTMLElement, folder: Folder): void => {
     for (const inner of folder.folders) {
-      const icon = el("div", { cls: "tree-item-icon collapse-icon" });
+      const icon = el("div", { cls: "tree-item-icon collapse-icon is-collapsed" });
       icon.innerHTML = triangle;
       const title = el("div", { cls: "tree-item-self nav-folder-title is-clickable mod-collapsible" }, [
         icon,
         el("div", { cls: "tree-item-inner nav-folder-title-content", text: inner.name }),
       ]);
-      const item = el("div", { cls: "tree-item nav-folder" }, [title, draw(inner, [...above, inner.path])]);
-      setOpen(item, open.has(inner.path));
+      const innerChildren = el("div", { cls: "tree-item-children nav-folder-children" });
+      const item = el("div", { cls: "tree-item nav-folder is-collapsed" }, [title, innerChildren]);
+      drawn.set(inner.path, { item, children: innerChildren, folder: inner, isMade: false });
       title.addEventListener("click", () => {
-        const isOpen = item.classList.contains("is-collapsed");
-        setOpen(item, isOpen);
-        if (isOpen) {
-          open.add(inner.path);
-        } else {
-          open.delete(inner.path);
-        }
+        setOpen(inner.path, item.classList.contains("is-collapsed"));
         onToggle();
       });
-      folderEls.set(inner.path, item);
       children.appendChild(item);
+      if (open.has(inner.path)) {
+        setOpen(inner.path, true);
+      }
     }
     for (const file of folder.items) {
       const row = el("a", { cls: "tree-item-self nav-file-title is-clickable", attr: { href: "#/" + file.id } }, [
@@ -113,32 +127,30 @@ export function treeView(root: Folder, triangle: string, open: Set<string>, onTo
         file.tag === "" ? null : el("div", { cls: "nav-file-tag", text: file.tag }),
       ]);
       rows.set(file.id, row);
-      parents.set(file.id, above);
       children.appendChild(el("div", { cls: "tree-item nav-file" }, [row]));
     }
-    return children;
   };
 
-  const container = el("div", { cls: "nav-files-container node-insert-event" }, [draw(root, [])]);
+  const top = el("div", { cls: "tree-item-children nav-folder-children" });
+  fill(top, root);
+  const container = el("div", { cls: "nav-files-container node-insert-event" }, [top]);
   let active: HTMLElement | null = null;
   return {
     el: container,
     show(id) {
       active?.classList.remove("is-active");
-      active = rows.get(id) ?? null;
-      if (active === null) {
-        return;
+      // The folders above the note, from the root down: each is opened, which makes its rows
+      const path = index.notes[id]?.p ?? index.files[id]?.p ?? "";
+      const parts = path.split("/").slice(0, -1);
+      for (let depth = 1; depth <= parts.length; depth++) {
+        setOpen(parts.slice(0, depth).join("/"), true);
       }
-      active.classList.add("is-active");
-      for (const path of parents.get(id) ?? []) {
-        const folder = folderEls.get(path);
-        if (folder !== undefined) {
-          setOpen(folder, true);
-          open.add(path);
-        }
+      active = rows.get(id) ?? null;
+      if (active !== null) {
+        active.classList.add("is-active");
+        active.scrollIntoView({ block: "nearest" });
       }
       onToggle();
-      active.scrollIntoView({ block: "nearest" });
     },
   };
 }
