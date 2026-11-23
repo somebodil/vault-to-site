@@ -64,19 +64,3 @@ export function setTick(ticks: Ticks, path: string, value: boolean): Ticks {
   next.off.sort();
   return next;
 }
-
-/** What a folder shows: all of its files ticked, none, or some */
-export type FolderState = "on" | "off" | "some";
-
-export function folderState(files: readonly string[], isTicked: (path: string) => boolean, fallback: boolean): FolderState {
-  if (files.length === 0) {
-    return fallback ? "on" : "off";
-  }
-  let ticked = 0;
-  for (const file of files) {
-    if (isTicked(file)) {
-      ticked++;
-    }
-  }
-  return ticked === 0 ? "off" : ticked === files.length ? "on" : "some";
-}

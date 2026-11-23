@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { folderState, isAtOrUnder, NO_TICKS, parentOf, setTick, ticker, type Ticks } from "./ticks.ts";
+import { isAtOrUnder, NO_TICKS, parentOf, setTick, ticker, type Ticks } from "./ticks.ts";
 
 describe("parentOf", () => {
   it("is the folder a path is in, and the root for a top-level path", () => {
@@ -66,19 +66,5 @@ describe("setTick", () => {
     const ticks = setTick({ on: ["a.md"], off: [] }, "", true);
     assert.deepEqual(ticks, { on: [""], off: [] });
     assert.deepEqual(setTick(ticks, "", false), NO_TICKS);
-  });
-});
-
-describe("folderState", () => {
-  it("is on, off or some by the files inside", () => {
-    const isTicked = ticker({ on: ["a.md", "b.md"], off: [] });
-    assert.equal(folderState(["a.md", "b.md"], isTicked, false), "on");
-    assert.equal(folderState(["a.md", "c.md"], isTicked, false), "some");
-    assert.equal(folderState(["c.md"], isTicked, false), "off");
-  });
-
-  it("takes the tick of the folder itself when the folder is empty", () => {
-    assert.equal(folderState([], () => false, true), "on");
-    assert.equal(folderState([], () => false, false), "off");
   });
 });

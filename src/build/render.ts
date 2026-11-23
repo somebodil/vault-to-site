@@ -14,6 +14,14 @@ export interface RenderContext {
   stage: HTMLElement;
 }
 
+/** A note as the site holds it */
+export interface Rendered {
+  /** What Obsidian drew, made fit for the site */
+  html: string;
+  /** The words of it, a line for each paragraph, row or item: what the search of the site looks through */
+  text: string;
+}
+
 /** Set while a note is tidied: the note an embed shows, for the links inside it */
 const SOURCE = "data-v2s-source";
 /** On what was emptied because it is not part of the site */
@@ -27,7 +35,7 @@ export const LEFT_OUT = "v2s-left-out";
  * outside the site is kept as it is: an embed, a link or a picture stays only
  * when it is known to be part of the site, and is emptied otherwise.
  */
-export async function renderNote(file: TFile, text: string, context: RenderContext): Promise<string> {
+export async function renderNote(file: TFile, text: string, context: RenderContext): Promise<Rendered> {
   const host = context.stage.createDiv({ cls: "markdown-preview-view markdown-rendered" });
   const component = new Component();
   component.load();
@@ -35,7 +43,7 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
     await MarkdownRenderer.render(context.app, text, host, file.path, component);
     await settled(host);
     tidy(host, file, context);
-    return host.innerHTML;
+    return { html: host.innerHTML, text: visibleText(host) };
   } finally {
     component.unload();
     host.remove();
@@ -196,6 +204,59 @@ function isFromTheWeb(src: string): boolean {
   } catch {
     return false;
   }
+}
+
+const BLOCKS = new Set(["P", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "TR", "BLOCKQUOTE", "DIV", "TABLE", "UL", "OL", "DL", "DT", "DD", "HR", "BR", "SECTION", "FIGURE", "FIGCAPTION", "DETAILS", "SUMMARY"]);
+/** What has no words to search for: drawings, formulas as they are drawn, buttons, and what was emptied */
+const WORDLESS = new Set(["SVG", "STYLE", "SCRIPT", "MJX-CONTAINER", "BUTTON", "IFRAME", "IMG", "AUDIO", "VIDEO"]);
+
+/**
+ * The words of a note as a reader of the site sees them, a line for each
+ * block. The search looks through this and not through the note as it was
+ * written: a link written as `[[Folder/Name|words]]` shows only its words, and
+ * so only they are found.
+ */
+export function visibleText(host: HTMLElement): string {
+  const lines: string[] = [];
+  let line = "";
+  const end = (): void => {
+    const clean = line.replace(/\s+/g, " ").trim();
+    if (clean !== "") {
+      lines.push(clean);
+    }
+    line = "";
+  };
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      line += node.textContent ?? "";
+      return;
+    }
+    if (!node.instanceOf(Element) || WORDLESS.has(node.tagName.toUpperCase())) {
+      return;
+    }
+    if (node.tagName === "PRE") {
+      end();
+      for (const row of (node.querySelector("code") ?? node).textContent.split("\n")) {
+        if (row.trim() !== "") {
+          lines.push(row.trimEnd());
+        }
+      }
+      return;
+    }
+    const isBlock = BLOCKS.has(node.tagName);
+    if (isBlock) {
+      end();
+    }
+    node.childNodes.forEach(walk);
+    if (isBlock) {
+      end();
+    } else if (node.tagName === "TD" || node.tagName === "TH") {
+      line += " ";
+    }
+  };
+  walk(host);
+  end();
+  return lines.join("\n");
 }
 
 /**

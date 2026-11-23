@@ -31,6 +31,8 @@ export interface Choice {
   byProperty: { path: string; rule: PropertyRule }[];
   /** Ticked paths, and files a note uses, that a pattern keeps out */
   byPattern: string[];
+  /** Ticked files that only notes outside the site use: they stay out with those notes */
+  withNotes: string[];
   /** Links and embeds from a note of the site to a note that is not in it */
   cut: { from: string; to: string }[];
 }
@@ -41,14 +43,31 @@ export interface Choice {
  * A pattern or a property always wins over a tick. A file that is not a note
  * comes along when a note of the site uses it, ticked or not: a note without
  * its pictures is not what was asked for. A note never comes along that way.
+ *
+ * A file that notes use, but none of the site, stays out even when it is
+ * ticked. Otherwise ticking a whole folder of pictures would put the
+ * pictures of a private note into the site without the note. A ticked file
+ * that no note uses goes in: it was asked for on its own.
  */
 export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice {
   const isTicked = ticker(rules.ticks);
   const isExcluded = (path: string): boolean => rules.exclude.patterns.some((pattern) => pattern.test(path));
   const byPath = new Map(files.map((file) => [file.path, file]));
 
+  /** The files that are not notes and that some note of the vault uses */
+  const used = new Set<string>();
+  for (const file of files) {
+    for (const to of file.uses ?? []) {
+      if (byPath.get(to)?.isNote === false) {
+        used.add(to);
+      }
+    }
+  }
+
   const notes = new Set<string>();
   const others = new Set<string>();
+  /** Ticked files that a note uses: they go in only when a note of the site does */
+  const waiting = new Set<string>();
   const pulledIn = new Set<string>();
   const byPattern = new Set<string>();
   const byProperty: Choice["byProperty"] = [];
@@ -62,7 +81,7 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
       continue;
     }
     if (!file.isNote) {
-      others.add(file.path);
+      (used.has(file.path) ? waiting : others).add(file.path);
       continue;
     }
     const rule = matchingRule(file.properties, rules.properties);
@@ -89,6 +108,10 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
       if (others.has(to)) {
         continue;
       }
+      if (waiting.delete(to)) {
+        others.add(to);
+        continue;
+      }
       if (isExcluded(to)) {
         byPattern.add(to);
         cut.push({ from, to });
@@ -106,6 +129,7 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
     pulledIn: sorted(pulledIn),
     byProperty: byProperty.sort((a, b) => a.path.localeCompare(b.path)),
     byPattern: sorted(byPattern),
+    withNotes: sorted(waiting),
     cut: cut.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
   };
 }

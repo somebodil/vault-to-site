@@ -81,6 +81,22 @@ describe("choose", () => {
     assert.deepEqual(choice.pulledIn, []);
   });
 
+  it("keeps a ticked file out when only notes outside the site use it", () => {
+    // The whole vault is ticked: the picture of the private note must not get in as a file of its own
+    const choice = choose(files, rules([""]));
+    assert.equal(choice.files.includes("Attachments/secret.png"), false);
+    assert.deepEqual(choice.withNotes, ["Attachments/secret.png"]);
+    assert.deepEqual(choice.files, ["Attachments/pic.png", "Attachments/scan.pdf", "Attachments/unused.png"]);
+    assert.deepEqual(choice.pulledIn, []);
+  });
+
+  it("keeps a ticked file out when the note that uses it is not ticked", () => {
+    const choice = choose(files, rules(["Attachments", "Guide"]));
+    assert.deepEqual(choice.notes, ["Guide/Setup.md"]);
+    assert.deepEqual(choice.files, ["Attachments/unused.png"]);
+    assert.deepEqual(choice.withNotes, ["Attachments/pic.png", "Attachments/scan.pdf", "Attachments/secret.png"]);
+  });
+
   it("leaves a folder out of a ticked folder", () => {
     const choice = choose(files, rules([""], ["Private", "Attachments"]));
     assert.deepEqual(choice.notes, ["Guide/Setup.md", "Home.md"]);

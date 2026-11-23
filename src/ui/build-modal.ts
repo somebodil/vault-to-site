@@ -1,9 +1,10 @@
 import { type App, Modal, Setting } from "obsidian";
+import { zipPath } from "../build/output.ts";
 import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
-import type { Choice } from "../select/choose.ts";
+import type { Choice, VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
-import { folderState, isAtOrUnder, parentOf, setTick, ticker } from "../select/ticks.ts";
+import { parentOf, setTick, ticker } from "../select/ticks.ts";
 import type { Settings } from "../settings.ts";
 
 /** What the dialog needs of the plugin */
@@ -18,8 +19,8 @@ interface Folder {
   name: string;
   folders: Folder[];
   files: string[];
-  /** Every file inside, however deep */
-  all: string[];
+  /** How many files are inside, however deep */
+  total: number;
 }
 
 const byName = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
@@ -73,67 +74,98 @@ export class BuildModal extends Modal {
       text: "Tick the folders and notes that go into the site. Pictures and other files that a ticked note uses come along.",
     });
 
-    const files = readVault(this.app, this.settings.output).map((file) => file.path);
-    const root = toTree(files);
+    let files: VaultFile[] = [];
+    let root: Folder = toTree([]);
+    /** Ticked paths that a rule keeps out, with the rule */
+    let keptOut = new Map<string, string>();
     const summary = contentEl.createDiv({ cls: "vault-to-site-summary" });
     const treeEl = contentEl.createDiv({ cls: "vault-to-site-tree" });
+    let review: { setDisabled(disabled: boolean): unknown } | null = null;
 
-    const drawSummary = (): void => {
-      const { choice, hasInvalidPattern } = planSite(this.app, this.settings);
+    /** Works out what a build would hold, and says it above the tree */
+    const plan = (): void => {
+      const { choice, hasInvalidPattern } = planSite(this.app, this.settings, files);
+      keptOut = new Map<string, string>([
+        ...choice.withNotes.map((path): [string, string] => [path, "its notes are out"]),
+        ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
+        ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
+      ]);
       summary.empty();
       summary.createSpan({ text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} go in.` });
-      const out = choice.byProperty.length + choice.byPattern.length;
-      if (out > 0) {
-        summary.createSpan({ cls: "vault-to-site-muted", text: ` ${String(out)} kept out by a rule.` });
+      if (keptOut.size > 0) {
+        summary.createSpan({ cls: "vault-to-site-muted", text: ` ${String(keptOut.size)} kept out by a rule.` });
       }
       if (hasInvalidPattern) {
         summary.createSpan({ cls: "vault-to-site-warning", text: " A pattern is not a valid regular expression and is not used." });
       }
-      review.setDisabled(choice.notes.length + choice.files.length === 0);
+      review?.setDisabled(choice.notes.length + choice.files.length === 0);
     };
 
     const drawTree = (): void => {
       const isTicked = ticker(this.settings.ticks);
+      // How many files are ticked inside each folder, in one pass over the files
+      const ticked = new Map<string, number>();
+      for (const file of files) {
+        if (!isTicked(file.path)) {
+          continue;
+        }
+        for (let at = parentOf(file.path); at !== null; at = parentOf(at)) {
+          ticked.set(at, (ticked.get(at) ?? 0) + 1);
+        }
+      }
+      const stateOf = (folder: Folder): "on" | "off" | "some" => {
+        const n = ticked.get(folder.path) ?? 0;
+        if (folder.total === 0) {
+          return isTicked(folder.path) ? "on" : "off";
+        }
+        return n === 0 ? "off" : n === folder.total ? "on" : "some";
+      };
+
       const scroll = treeEl.scrollTop;
       treeEl.empty();
       const row = (parent: HTMLElement, path: string, name: string, state: "on" | "off" | "some", folder: Folder | null): HTMLElement => {
         const line = parent.createDiv({ cls: "vault-to-site-row" });
         const arrow = line.createSpan({ cls: "vault-to-site-arrow" });
-        if (folder !== null) {
-          arrow.setText(this.openFolders.has(path) ? "▾" : "▸");
-          arrow.addClass("is-folder");
-        }
         const label = line.createEl("label", { cls: "vault-to-site-label" });
         const box = label.createEl("input", { type: "checkbox" });
         box.checked = state === "on";
         box.indeterminate = state === "some";
+        box.toggleClass("is-some", state === "some");
         box.addEventListener("change", () => {
           this.change((settings) => {
             settings.ticks = setTick(settings.ticks, path, state !== "on");
           });
+          plan();
           drawTree();
-          drawSummary();
         });
         label.createSpan({ cls: folder !== null ? "vault-to-site-folder-name" : "vault-to-site-file-name", text: name });
-        if (folder !== null) {
-          const ticked = folder.all.filter(isTicked).length;
-          line.createSpan({ cls: "vault-to-site-count", text: `${String(ticked)} / ${String(folder.all.length)}` });
-          const toggle = (): void => {
-            if (this.openFolders.has(path)) {
-              this.openFolders.delete(path);
-            } else {
-              this.openFolders.add(path);
-            }
-            drawTree();
-          };
-          arrow.addEventListener("click", toggle);
-          line.querySelector(".vault-to-site-count")?.addEventListener("click", toggle);
+        if (folder === null) {
+          const rule = state === "on" ? keptOut.get(path) : undefined;
+          if (rule !== undefined) {
+            line.addClass("is-kept-out");
+            line.createSpan({ cls: "vault-to-site-count", text: rule });
+          }
+          return line;
         }
+        const toggle = (): void => {
+          if (this.openFolders.has(path)) {
+            this.openFolders.delete(path);
+          } else {
+            this.openFolders.add(path);
+          }
+          drawTree();
+        };
+        arrow.setText(this.openFolders.has(path) ? "▾" : "▸");
+        arrow.addClass("is-folder");
+        arrow.addEventListener("click", toggle);
+        line
+          .createSpan({ cls: "vault-to-site-count", text: `${String(ticked.get(path) ?? 0)} / ${String(folder.total)}` })
+          .addEventListener("click", toggle);
         return line;
       };
       const draw = (parent: HTMLElement, folder: Folder): void => {
         for (const inner of folder.folders) {
-          row(parent, inner.path, inner.name, folderState(inner.all, isTicked, isTicked(inner.path)), inner);
+          row(parent, inner.path, inner.name, stateOf(inner), inner);
           if (this.openFolders.has(inner.path)) {
             draw(parent.createDiv({ cls: "vault-to-site-children" }), inner);
           }
@@ -142,11 +174,19 @@ export class BuildModal extends Modal {
           row(parent, file, nameOf(file), isTicked(file) ? "on" : "off", null);
         }
       };
-      row(treeEl, "", this.app.vault.getName(), folderState(root.all, isTicked, isTicked("")), root).addClass("is-root");
+      row(treeEl, "", this.app.vault.getName(), stateOf(root), root).addClass("is-root");
       if (this.openFolders.has("")) {
         draw(treeEl.createDiv({ cls: "vault-to-site-children" }), root);
       }
       treeEl.scrollTop = scroll;
+    };
+
+    /** Reads the files of the vault again: what a build writes is not among them, so they change with where it writes */
+    const readFiles = (): void => {
+      files = readVault(this.app, this.settings);
+      root = toTree(files.map((file) => file.path));
+      plan();
+      drawTree();
     };
 
     new Setting(contentEl)
@@ -163,7 +203,8 @@ export class BuildModal extends Modal {
             settings.exclude = value;
           });
           mark();
-          drawSummary();
+          plan();
+          drawTree();
         });
       });
 
@@ -177,23 +218,52 @@ export class BuildModal extends Modal {
           this.change((settings) => {
             settings.properties = value;
           });
-          drawSummary();
+          plan();
+          drawTree();
         });
       });
 
-    new Setting(contentEl)
-      .setName("Folder of the site")
-      .setDesc("Where the site is written, from the root of the vault. A build empties this folder first.")
-      .addText((text) => {
-        text.setValue(this.settings.output);
-        text.onChange((value) => {
-          this.change((settings) => {
-            settings.output = value.trim();
+    const place = new Setting(contentEl);
+    const drawPlace = (): void => {
+      const isZip = this.settings.format === "zip";
+      place.clear();
+      place
+        .setName("Written as")
+        .setDesc(
+          isZip
+            ? "One zip archive, from the root of the vault. Unpack it to read the site. A build writes over the archive of the build before."
+            : "A folder, from the root of the vault. A build empties this folder first.",
+        )
+        .addDropdown((dropdown) => {
+          dropdown
+            .addOption("zip", "Zip archive")
+            .addOption("folder", "Folder")
+            .setValue(this.settings.format)
+            .onChange((value) => {
+              this.change((settings) => {
+                settings.format = value === "folder" ? "folder" : "zip";
+              });
+              drawPlace();
+              readFiles();
+            });
+        })
+        .addText((text) => {
+          text.setValue(isZip ? this.settings.zip : this.settings.folder);
+          text.onChange((value) => {
+            this.change((settings) => {
+              if (isZip) {
+                settings.zip = value.trim();
+              } else {
+                settings.folder = value.trim();
+              }
+            });
           });
+          // When the typing is over: the files of the vault are read again without what the build writes
+          text.inputEl.addEventListener("blur", readFiles);
         });
-      });
+    };
+    drawPlace();
 
-    let review!: { setDisabled(disabled: boolean): unknown };
     new Setting(contentEl).addButton((button) => {
       review = button;
       button
@@ -202,8 +272,7 @@ export class BuildModal extends Modal {
         .onClick(() => this.showReview());
     });
 
-    drawTree();
-    drawSummary();
+    readFiles();
   }
 
   // ---- Step 2: what a build would hold ----
@@ -213,11 +282,11 @@ export class BuildModal extends Modal {
     contentEl.empty();
     this.setTitle("Look over the site");
     const { choice } = planSite(this.app, this.settings);
-    const folder = this.settings.output === "" ? ".vault-to-site" : this.settings.output;
+    const place = this.settings.format === "zip" ? `the archive "${zipPath(this.settings.zip)}"` : `the folder "${this.settings.folder}"`;
 
     contentEl.createEl("p", {
       cls: "vault-to-site-lead",
-      text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} will be written to the folder "${folder}". Nothing else of the vault goes into the site.`,
+      text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} will be written to ${place}. Nothing else of the vault goes into the site.`,
     });
 
     const list = (title: string, lines: string[], isOpen: boolean, note?: string): void => {
@@ -250,12 +319,20 @@ export class BuildModal extends Modal {
     if (choice.byPattern.length > 0) {
       list("Kept out by a pattern", choice.byPattern, false);
     }
+    if (choice.withNotes.length > 0) {
+      list(
+        "Kept out with the notes that use them",
+        choice.withNotes,
+        false,
+        "These files are ticked, but only notes that are not in the site use them. So they stay out too.",
+      );
+    }
     if (choice.cut.length > 0) {
       list(
         "Links and embeds that are cut",
         cutLines(choice),
         true,
-        "These notes of the site point to something that is not in it. An embed is emptied and a link leads nowhere, but the words of a link stay as they are written in the note.",
+        "These notes of the site point to something that is not in it. An embed is emptied and a link leads nowhere. The words of a link stay as the note shows them.",
       );
     }
 
@@ -297,12 +374,15 @@ export class BuildModal extends Modal {
       }),
     );
 
-    const done = (title: string, text: string): void => {
+    const done = (title: string, lines: string[]): void => {
       this.building = false;
       this.setTitle(title);
       bar.remove();
       label.removeClass("vault-to-site-muted");
-      label.setText(text);
+      label.empty();
+      for (const line of lines) {
+        label.createEl("p", { text: line });
+      }
       buttons.clear();
       buttons
         .addButton((button) => button.setButtonText("Back").onClick(() => this.showChoose()))
@@ -322,20 +402,26 @@ export class BuildModal extends Modal {
         (finished, total, what) => {
           bar.max = total;
           bar.value = finished;
-          label.setText(what === "" ? "" : `${String(finished + 1)} of ${String(total)}: ${what}`);
+          label.setText(what === "" ? "" : `${String(Math.min(finished + 1, total))} of ${String(total)}: ${what}`);
         },
         this.stop,
       );
-      done(
-        "The site is built",
-        `${count(result.notes, "note")} and ${count(result.files, "other file")} in ${(result.millis / 1000).toFixed(1)} seconds. Open index.html in the folder "${result.folder}" of the vault with a browser.`,
-      );
+      const lines = [
+        `${count(result.notes, "note")} and ${count(result.files, "other file")}, ${size(result.bytes)}, in ${(result.millis / 1000).toFixed(1)} seconds.`,
+        this.settings.format === "zip"
+          ? `The site is the archive "${result.place}" in the vault. Unpack it and open index.html with a browser.`
+          : `The site is the folder "${result.place}" in the vault. Open index.html in it with a browser.`,
+      ];
+      if (result.failed.length > 0) {
+        lines.push(`${count(result.failed.length, "note")} could not be drawn, and the site says so in their place: ${result.failed.map((x) => x.path).join(", ")}`);
+      }
+      done("The site is built", lines);
     } catch (error) {
       if (error instanceof BuildStopped) {
-        done("The build was stopped", "The folder of the site holds an unfinished build. Build again to finish it.");
+        done("The build was stopped", ["No site was finished. Build again to have one."]);
       } else {
         console.error(error);
-        done("The site could not be built", error instanceof Error ? error.message : String(error));
+        done("The site could not be built", [error instanceof Error ? error.message : String(error)]);
       }
     }
   }
@@ -343,6 +429,10 @@ export class BuildModal extends Modal {
 
 function count(n: number, noun: string): string {
   return `${String(n)} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+function size(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${String(Math.max(1, Math.round(bytes / 1024)))} KB`;
 }
 
 /** One line for each note that points outside the site, with what it points to */
@@ -356,25 +446,27 @@ function cutLines(choice: Choice): string[] {
 
 /** The folders of the vault, made from the paths of its files */
 function toTree(paths: readonly string[]): Folder {
-  const root: Folder = { path: "", name: "", folders: [], files: [], all: [] };
+  const root: Folder = { path: "", name: "", folders: [], files: [], total: 0 };
   const folders = new Map<string, Folder>([["", root]]);
   const folderOf = (path: string): Folder => {
     const known = folders.get(path);
     if (known !== undefined) {
       return known;
     }
-    const folder: Folder = { path, name: nameOf(path), folders: [], files: [], all: [] };
+    const folder: Folder = { path, name: nameOf(path), folders: [], files: [], total: 0 };
     folders.set(path, folder);
     folderOf(parentOf(path) ?? "").folders.push(folder);
     return folder;
   };
   for (const path of paths) {
     folderOf(parentOf(path) ?? "").files.push(path);
+    for (let at = parentOf(path); at !== null; at = parentOf(at)) {
+      folderOf(at).total++;
+    }
   }
   for (const folder of folders.values()) {
     folder.folders.sort((a, b) => byName(a.name, b.name));
     folder.files.sort((a, b) => byName(nameOf(a), nameOf(b)));
-    folder.all = paths.filter((path) => isAtOrUnder(path, folder.path));
   }
   return root;
 }

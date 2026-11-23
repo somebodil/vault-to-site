@@ -10,7 +10,7 @@ import {
   type SiteIndex,
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
-import { MARKER, Output } from "./output.ts";
+import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { renderNote, resourceMap, type RenderContext } from "./render.ts";
 import { captureStyles } from "./styles.ts";
@@ -24,10 +24,14 @@ export type Progress = (done: number, total: number, label: string) => void;
 export interface BuildResult {
   notes: number;
   files: number;
-  folder: string;
+  /** The archive or the folder, from the root of the vault */
+  place: string;
+  bytes: number;
   millis: number;
-  /** Files that had to be written a second time */
+  /** Writes that had to be done a second time */
   rewritten: number;
+  /** Notes that Obsidian could not draw. The site says so in their place. */
+  failed: { path: string; message: string }[];
 }
 
 /** Thrown when the build was stopped from outside */
@@ -35,6 +39,12 @@ export class BuildStopped extends Error {}
 
 /** A part of the text to search in is closed when it is this long, so that no single script gets large */
 const SEARCH_PART_LENGTH = 300_000;
+
+/**
+ * How many notes are drawn at a time. Drawing a note is mostly waiting for
+ * what arrives late, so several at once are faster than one after the other.
+ */
+const AT_A_TIME = 4;
 
 /**
  * Builds the site: decides what it holds, has Obsidian draw every note, and
@@ -61,90 +71,123 @@ export async function buildSite(
     }),
   );
 
-  const output = new Output(app.vault.adapter, settings.output);
+  const output: SiteOutput =
+    settings.format === "zip" ? new ZipOutput(app.vault.adapter, settings.zip) : new FolderOutput(app.vault.adapter, settings.folder);
   await output.prepare();
   await output.text(MARKER, JSON.stringify({ plugin: "vault-to-site", version }, null, 2) + "\n");
   await output.text(".nojekyll", "");
 
   const total = choice.notes.length + choice.files.length + 1;
   let done = 0;
-  const step = (label: string): void => {
+  const check = (): void => {
     if (stop.now) {
       throw new BuildStopped();
     }
-    progress(done, total, label);
+  };
+
+  const doc = activeDocument;
+  const stage = doc.body.createDiv({ cls: "vault-to-site-stage" });
+  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage };
+  const failed: BuildResult["failed"] = [];
+  /** By the place of the note in the list, so that the site is the same whatever note was ready first */
+  const entries: (NoteEntry | undefined)[] = [];
+  const texts: (string | undefined)[] = [];
+
+  const drawNote = async (at: number): Promise<void> => {
+    const path = choice.notes[at];
+    const file = path === undefined ? null : app.vault.getAbstractFileByPath(path);
+    if (path === undefined || !(file instanceof TFile)) {
+      return;
+    }
+    progress(done, total, path);
+    const id = idOf(path);
+    const cache = app.metadataCache.getFileCache(file);
+    let page: NotePage;
+    try {
+      const rendered = await renderNote(file, await app.vault.cachedRead(file), context);
+      page = {
+        html: rendered.html,
+        props: Object.entries(cache?.frontmatter ?? {})
+          .filter(([key]) => key !== "position")
+          .map(([key, value]) => [key, value as PropertyValue]),
+      };
+      texts[at] = rendered.text;
+    } catch (error) {
+      console.error(error);
+      failed.push({ path, message: error instanceof Error ? error.message : String(error) });
+      page = { html: '<p class="v2s-empty">This note could not be drawn when the site was built.</p>', props: [] };
+      texts[at] = "";
+    }
+    await output.text(`data/n/${id}.js`, `__site.note(${JSON.stringify(id)},${JSON.stringify(page)});\n`);
+
+    const links = Object.keys(app.metadataCache.resolvedLinks[path] ?? {})
+      .map((to) => noteIds.get(to))
+      .filter((to): to is string => to !== undefined && to !== id);
+    entries[at] = { p: path, h: (cache?.headings ?? []).map((h) => [h.level, h.heading]), l: links };
     done++;
   };
 
-  const stage = activeDocument.body.createDiv({ cls: "vault-to-site-stage" });
-  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage };
+  try {
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < choice.notes.length) {
+        check();
+        await drawNote(next++);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(AT_A_TIME, choice.notes.length) }, worker));
+    check();
+
+    // After the notes: drawing a formula adds styles for the signs it uses
+    progress(done, total, "Styles");
+    const styles = await captureStyles(doc);
+    await output.text("app/obsidian.css", styles.css);
+    for (const resource of styles.resources) {
+      await output.binary("app/" + resource.name, resource.bytes);
+    }
+    done++;
+  } finally {
+    stage.remove();
+  }
+
   const notes: Record<string, NoteEntry> = {};
   let part: SearchPart = [];
   let partLength = 0;
   let parts = 0;
   const closePart = async (): Promise<void> => {
-    if (part.length === 0) {
-      return;
+    if (part.length > 0) {
+      await output.text(`data/s/${String(parts)}.js`, `__site.search(${String(parts)},${JSON.stringify(part)});\n`);
+      parts++;
+      part = [];
+      partLength = 0;
     }
-    await output.text(`data/s/${String(parts)}.js`, `__site.search(${String(parts)},${JSON.stringify(part)});\n`);
-    parts++;
-    part = [];
-    partLength = 0;
   };
-
-  try {
-    for (const path of choice.notes) {
-      step(path);
-      const file = app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) {
-        continue;
-      }
-      const id = idOf(path);
-      const cache = app.metadataCache.getFileCache(file);
-      const text = await app.vault.cachedRead(file);
-      const page: NotePage = {
-        html: await renderNote(file, text, context),
-        props: Object.entries(cache?.frontmatter ?? {})
-          .filter(([key]) => key !== "position")
-          .map(([key, value]) => [key, value as PropertyValue]),
-      };
-      await output.text(`data/n/${id}.js`, `__site.note(${JSON.stringify(id)},${JSON.stringify(page)});\n`);
-
-      const links = Object.keys(app.metadataCache.resolvedLinks[path] ?? {})
-        .map((to) => noteIds.get(to))
-        .filter((to): to is string => to !== undefined && to !== id);
-      notes[id] = { p: path, h: (cache?.headings ?? []).map((h) => [h.level, h.heading]), l: links };
-
-      // What is searched is what was written, as in Obsidian, without the properties
-      const body = text.slice(cache?.frontmatterPosition?.end.offset ?? 0);
-      part.push([id, body]);
-      partLength += body.length;
-      if (partLength >= SEARCH_PART_LENGTH) {
-        await closePart();
-      }
+  for (const [at, path] of choice.notes.entries()) {
+    const entry = entries[at];
+    if (entry === undefined) {
+      continue;
     }
-    await closePart();
-
-    // After the notes: drawing a formula adds styles for the signs it uses
-    step("Styles");
-    const styles = await captureStyles(activeDocument);
-    await output.text("app/obsidian.css", styles.css);
-    for (const resource of styles.resources) {
-      await output.binary("app/" + resource.name, resource.bytes);
+    const id = idOf(path);
+    notes[id] = entry;
+    const text = texts[at] ?? "";
+    part.push([id, text]);
+    partLength += text.length;
+    if (partLength >= SEARCH_PART_LENGTH) {
+      await closePart();
     }
-  } finally {
-    stage.remove();
   }
+  await closePart();
 
   const files: Record<string, FileEntry> = {};
   for (const path of choice.files) {
-    step(path);
+    check();
+    progress(done, total, path);
     const asset = assets.get(path);
-    if (asset === undefined) {
-      continue;
+    if (asset !== undefined) {
+      await output.copy(path, asset);
+      files[idOf(path)] = { p: path, a: asset };
     }
-    await output.copy(path, asset);
-    files[idOf(path)] = { p: path, a: asset };
+    done++;
   }
 
   const icons: Record<string, string> = {};
@@ -159,18 +202,28 @@ export async function buildSite(
     notes,
     files,
     searchParts: parts,
-    theme: activeDocument.body.classList.contains("theme-dark") ? "dark" : "light",
-    inlineTitle: activeDocument.body.classList.contains("show-inline-title"),
-    bodyStyle: activeDocument.body.getAttribute("style") ?? "",
+    theme: doc.body.classList.contains("theme-dark") ? "dark" : "light",
+    inlineTitle: doc.body.classList.contains("show-inline-title"),
+    bodyStyle: doc.body.getAttribute("style") ?? "",
     icons,
   };
   await output.text("data/index.js", `__site.index(${JSON.stringify(index)});\n`);
   await output.text("app/viewer.css", VIEWER_CSS);
   await output.text("app/viewer.js", VIEWER_JS);
   await output.text("index.html", indexHtml(index.name));
+  progress(total, total, "Writing");
+  const written = await output.finish();
   progress(total, total, "");
 
-  return { notes: choice.notes.length, files: choice.files.length, folder: output.root, millis: Date.now() - start, rewritten: output.rewritten };
+  return {
+    notes: choice.notes.length,
+    files: choice.files.length,
+    place: written.place,
+    bytes: written.bytes,
+    millis: Date.now() - start,
+    rewritten: output.rewritten,
+    failed: failed.sort((a, b) => a.path.localeCompare(b.path)),
+  };
 }
 
 function indexHtml(name: string): string {

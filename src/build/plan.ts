@@ -4,14 +4,15 @@ import { parseExcludeRules } from "../select/exclude.ts";
 import { parsePropertyRules } from "../select/properties.ts";
 import { isAtOrUnder } from "../select/ticks.ts";
 import type { Settings } from "../settings.ts";
+import { zipPath } from "./output.ts";
 
-/** The files of the vault as the choice sees them. The folder of the site itself is not one of them. */
-export function readVault(app: App, output: string): VaultFile[] {
-  const root = normalizePath(output);
+/** The files of the vault as the choice sees them. What a build writes is not one of them. */
+export function readVault(app: App, settings: Settings): VaultFile[] {
+  const own = [zipPath(settings.zip), normalizePath(settings.folder)];
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];
   for (const file of app.vault.getFiles()) {
-    if (isAtOrUnder(file.path, root)) {
+    if (own.some((path) => isAtOrUnder(file.path, path))) {
       continue;
     }
     if (file.extension !== "md") {
@@ -29,9 +30,9 @@ export function readVault(app: App, output: string): VaultFile[] {
 }
 
 /** What a build with these settings would hold */
-export function planSite(app: App, settings: Settings): { choice: Choice; hasInvalidPattern: boolean } {
+export function planSite(app: App, settings: Settings, files: readonly VaultFile[] = readVault(app, settings)): { choice: Choice; hasInvalidPattern: boolean } {
   const exclude = parseExcludeRules(settings.exclude);
-  const choice = choose(readVault(app, settings.output), {
+  const choice = choose(files, {
     ticks: settings.ticks,
     exclude,
     properties: parsePropertyRules(settings.properties),

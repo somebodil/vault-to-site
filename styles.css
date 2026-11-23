@@ -109,6 +109,19 @@
   cursor: pointer;
 }
 
+/* A ticked note that a rule keeps out: crossed out, with the rule beside it */
+.vault-to-site-row.is-kept-out .vault-to-site-file-name {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+/* A folder with some of its files ticked */
+.vault-to-site-row input[type="checkbox"].is-some {
+  background-color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  opacity: 0.45;
+}
+
 .vault-to-site-invalid {
   border-color: var(--text-error);
 }
