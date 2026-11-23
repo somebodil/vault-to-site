@@ -14,7 +14,7 @@ export const MARKER = "vault-to-site.json";
 export const PART = ".v2s-part";
 export const OLD = ".v2s-old";
 
-const SITE_FILES = [MARKER, "index.html", ".nojekyll"];
+const SITE_FILES = [MARKER, "index.html", ".nojekyll", "README.txt"];
 const SITE_FOLDERS = ["app", "data", "assets"];
 
 /** How often a file is written before the build gives up */

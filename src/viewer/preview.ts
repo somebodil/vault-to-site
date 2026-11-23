@@ -6,6 +6,8 @@ export interface PreviewHost {
   /** True for a note of the site: only notes have a preview */
   isNote(id: string): boolean;
   load(id: string): Promise<NotePage | null>;
+  /** Gives the note in the preview what the page gives a note after it is drawn */
+  dress(view: HTMLElement): void;
 }
 
 /** How long the pointer rests on a link before its note is shown, as in Obsidian */
@@ -43,6 +45,7 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     popover?.remove();
     const view = el("div", { cls: "markdown-preview-view markdown-rendered" });
     view.append(...noteBlocks(page.html));
+    host.dress(view);
     const mine = el("div", { cls: "popover hover-popover v2s-popover" }, [
       el("div", { cls: "markdown-embed is-loaded" }, [el("div", { cls: "markdown-embed-content" }, [view])]),
     ]);

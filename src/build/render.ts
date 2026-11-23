@@ -14,6 +14,8 @@ export interface RenderContext {
   resourceToPath: (url: string) => string | null;
   /** An element of the page of Obsidian, out of sight, to draw in */
   stage: HTMLElement;
+  /** The classes of the reading view by the settings of Obsidian: see `viewClasses` */
+  viewClass: string;
 }
 
 /** A note as the site holds it */
@@ -42,7 +44,10 @@ export const LEFT_OUT = "v2s-left-out";
  * when it is known to be part of the site, and is emptied otherwise.
  */
 export async function renderNote(file: TFile, text: string, context: RenderContext): Promise<Rendered> {
-  const host = context.stage.createDiv({ cls: "markdown-preview-view markdown-rendered" });
+  // Inside what the reading view of Obsidian is made of, so that what is drawn to fit its place, as a
+  // diagram is, gets the width a note has there
+  const frame = context.stage.createDiv({ cls: "markdown-reading-view" });
+  const host = frame.createDiv({ cls: `markdown-preview-view markdown-rendered ${context.viewClass}` }).createDiv({ cls: "markdown-preview-sizer markdown-preview-section" });
   const component = new Component();
   component.load();
   try {
@@ -52,7 +57,7 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
     return { html: serialize(host), isWhole, text: visibleText(host) };
   } finally {
     component.unload();
-    host.remove();
+    frame.remove();
   }
 }
 
@@ -169,7 +174,6 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
     link.setAttribute("rel", "noopener");
   });
   dropOtherAddresses(host, context);
-  host.querySelectorAll("input[type=checkbox]").forEach((box) => box.setAttribute("disabled", ""));
   // A heading carries its text as it was written, with the target of a link in it
   host.querySelectorAll("[data-heading]").forEach((heading) => {
     heading.setAttribute("data-heading", shownWords(heading.getAttribute("data-heading") ?? ""));
@@ -177,6 +181,15 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
   // The block of the search of Obsidian lists lines of other notes, and a block of a base lists notes
   // and their properties, whatever they are
   host.querySelectorAll(".block-language-query, .internal-query, .block-language-base, .bases-embed").forEach(emptyOut);
+  // The same blocks where Obsidian has left them as the code they were written as
+  host.querySelectorAll("pre > code.language-query, pre > code.language-base").forEach((code) => {
+    const block = code.parentElement;
+    if (block !== null) {
+      const emptied = createDiv({ cls: `block-language-${code.classList.contains("language-base") ? "base" : "query"}` });
+      block.replaceWith(emptied);
+      emptyOut(emptied);
+    }
+  });
   dropInnerAddresses(host);
   host.querySelectorAll(`[${SOURCE}], [${MADE}]`).forEach((el) => {
     el.removeAttribute(SOURCE);
@@ -373,7 +386,7 @@ function tidyLinks(host: HTMLElement, file: TFile, context: RenderContext): void
 }
 
 /** The heading a link ends with. A link to a block has none: it leads to the note. */
-function headingOf(subpath: string): string {
+export function headingOf(subpath: string): string {
   if (subpath === "" || subpath.includes("^")) {
     return "";
   }

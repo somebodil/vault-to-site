@@ -1,11 +1,13 @@
-import { type App, getIcon, normalizePath, TFile } from "obsidian";
+import { type App, getIcon, normalizePath, parseLinktext, TFile } from "obsidian";
 import { signatureOf } from "../select/choose.ts";
 import type { Settings } from "../settings.ts";
 import {
   ICON_NAMES,
   type FileEntry,
   type NoteEntry,
+  noteAddress,
   type NotePage,
+  type PropertyEntry,
   type PropertyValue,
   type SearchPart,
   type SiteIndex,
@@ -14,9 +16,10 @@ import { assignIds, extensionOf } from "./ids.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
 import { FolderOutput, MARKER, type SiteOutput, ZipOutput, zipPath } from "./output.ts";
 import { planSite } from "./plan.ts";
-import { renderNote, resourceMap, type RenderContext } from "./render.ts";
+import { siteReadme } from "./readme.ts";
+import { headingOf, renderNote, resourceMap, type RenderContext } from "./render.ts";
 import { captureScriptFonts, captureStyles } from "./styles.ts";
-import { shownValue, shownWords } from "./words.ts";
+import { shownValue, shownWords, soleLink } from "./words.ts";
 
 declare const VIEWER_JS: string;
 declare const VIEWER_CSS: string;
@@ -136,7 +139,8 @@ async function build(
 
   const doc = activeDocument;
   const stage = doc.body.createDiv({ cls: "vault-to-site-stage" });
-  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage };
+  const viewClass = viewClasses(app);
+  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage, viewClass };
   const failed: BuildResult["failed"] = [];
   const unfinished: string[] = [];
   const mentions = mentionFinder(choice.guarded);
@@ -181,6 +185,22 @@ async function build(
     return ordering;
   };
 
+  /** The kinds of property the notes of the site have: each has its sign beside the name of the property */
+  const kinds = new Set<string>();
+  const propertyOf = (key: string, value: PropertyValue, source: string): PropertyEntry => {
+    const kind = kindOfProperty(app, key, value);
+    kinds.add(kind);
+    // A value that is a link to a note of the site leads there, as it does in Obsidian
+    const to = (Array.isArray(value) ? value : [value]).map((item) => {
+      const linked = typeof item === "string" ? soleLink(item) : null;
+      const { path, subpath } = parseLinktext(linked ?? "");
+      const target = linked === null ? null : path === "" ? source : app.metadataCache.getFirstLinkpathDest(path, source)?.path;
+      const id = target === null || target === undefined ? undefined : noteIds.get(target);
+      return id === undefined ? null : noteAddress(id, headingOf(subpath));
+    });
+    return to.some((address) => address !== null) ? [key, shownValue(value), kind, to] : [key, shownValue(value), kind];
+  };
+
   const drawNote = async (at: number): Promise<void> => {
     const path = choice.notes[at];
     const file = path === undefined ? null : app.vault.getAbstractFileByPath(path);
@@ -196,7 +216,7 @@ async function build(
       html: "",
       props: Object.entries(cache?.frontmatter ?? {})
         .filter(([key]) => key !== "position")
-        .map(([key, value]) => [key, shownValue(value as PropertyValue)]),
+        .map(([key, value]) => propertyOf(key, value as PropertyValue, path)),
       h: (cache?.headings ?? []).map((heading) => [heading.level, shownWords(heading.heading)]),
     };
     let words = "";
@@ -229,6 +249,8 @@ async function build(
   try {
     await output.text(MARKER, JSON.stringify({ plugin: "vault-to-site", version }, null, 2) + "\n");
     await output.text(".nojekyll", "");
+    // For the one who gets the site without having built it
+    await output.text("README.txt", siteReadme(app.vault.getName(), doc.documentElement.lang));
 
     try {
       // When one of them cannot go on, as when a write fails, the others stop too: they are not left to write into a build that is over
@@ -292,6 +314,12 @@ async function build(
         icons[name] = icon.outerHTML;
       }
     }
+    for (const kind of kinds) {
+      const icon = getIcon(iconOfKind(app, kind));
+      if (icon !== null) {
+        icons[`property-${kind}`] = icon.outerHTML;
+      }
+    }
     const notes: Record<string, NoteEntry> = Object.fromEntries(entries.filter((entry) => entry !== undefined));
     const index: SiteIndex = {
       name: app.vault.getName(),
@@ -300,6 +328,7 @@ async function build(
       searchParts: parts,
       theme: doc.body.classList.contains("theme-dark") ? "dark" : "light",
       inlineTitle: doc.body.classList.contains("show-inline-title"),
+      viewClass,
       bodyStyle: doc.body.getAttribute("style") ?? "",
       icons,
     };
@@ -333,6 +362,56 @@ async function build(
     await output.abort().catch(() => undefined);
     throw error;
   }
+}
+
+/** What Obsidian keeps of the kinds of the properties. Not a part of what it promises to plugins, so each piece is asked for with care. */
+interface PropertyKinds {
+  getPropertyInfo?: (key: string) => { widget?: unknown } | undefined;
+  registeredTypeWidgets?: Record<string, { icon?: unknown } | undefined>;
+}
+
+const KIND_ICONS: Record<string, string> = {
+  text: "lucide-text",
+  multitext: "lucide-list",
+  number: "lucide-binary",
+  checkbox: "lucide-check-square",
+  date: "lucide-calendar",
+  datetime: "lucide-clock",
+  tags: "lucide-tags",
+  aliases: "lucide-forward",
+};
+
+/** The kind Obsidian shows a property as: the one set for its name in the vault, else by what the value is */
+function kindOfProperty(app: App, key: string, value: PropertyValue): string {
+  const widget = (app as unknown as { metadataTypeManager?: PropertyKinds }).metadataTypeManager?.getPropertyInfo?.(key.toLowerCase())?.widget;
+  if (typeof widget === "string" && widget !== "") {
+    return widget;
+  }
+  return Array.isArray(value) ? "multitext" : typeof value === "boolean" ? "checkbox" : typeof value === "number" ? "number" : "text";
+}
+
+function iconOfKind(app: App, kind: string): string {
+  const icon = (app as unknown as { metadataTypeManager?: PropertyKinds }).metadataTypeManager?.registeredTypeWidgets?.[kind]?.icon;
+  return typeof icon === "string" && icon !== "" ? icon : (KIND_ICONS[kind] ?? "lucide-text");
+}
+
+/**
+ * The classes the reading view of Obsidian has by what is set under Editor in
+ * its settings. The site gives them to its own view, so that a note is as
+ * wide there, and folds there, as it does in Obsidian.
+ */
+function viewClasses(app: App): string {
+  const config = (key: string): unknown => (app.vault as unknown as { getConfig?: (key: string) => unknown }).getConfig?.(key);
+  // Each of these is on until it is turned off
+  const classes = [
+    config("readableLineLength") !== false ? "is-readable-line-width" : "",
+    config("foldHeading") !== false ? "allow-fold-headings" : "",
+    config("foldIndent") !== false ? "allow-fold-lists" : "",
+    config("showIndentGuide") !== false ? "show-indentation-guide" : "",
+    config("propertiesInDocument") !== "hidden" ? "show-properties" : "",
+    config("rightToLeft") === true ? "rtl" : "",
+  ];
+  return classes.filter((name) => name !== "").join(" ");
 }
 
 /** @param language the language Obsidian is set to: the browser chooses fonts and breaks words by it, as Obsidian does */

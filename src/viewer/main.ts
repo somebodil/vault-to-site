@@ -3,6 +3,7 @@ import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, type Haystack } from "./find.ts";
 import { addFolding } from "./fold.ts";
 import { graphView } from "./graph.ts";
+import { dressEmbeds, dressLists } from "./dress.ts";
 import { copyText, fileView, noteBlocks, propertiesView, titleOf } from "./note.ts";
 import { watchPreviews } from "./preview.ts";
 import { createSearch } from "./search.ts";
@@ -122,9 +123,23 @@ function start(index: SiteIndex): void {
     kept.set("folders", JSON.stringify([...openFolders]));
   });
   const sizer = el("div", { cls: "markdown-preview-sizer markdown-preview-section" });
+  // A site of an earlier build does not say how the view was set: then as Obsidian is at first
+  const viewClass = typeof index.viewClass === "string" ? index.viewClass : "is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties";
+  const canFold = (what: "headings" | "lists"): boolean => ` ${viewClass} `.includes(` allow-fold-${what} `);
+  const triangle = icons["right-triangle"] ?? "";
+  // A box of a task or of a property shows what the note says. It is not for ticking: nothing would keep the tick.
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.type === "checkbox" && event.target.closest(".markdown-rendered, .metadata-container") !== null) {
+        event.preventDefault();
+      }
+    },
+    true,
+  );
   const scroller = el(
     "div",
-    { cls: "markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties" },
+    { cls: `markdown-preview-view markdown-rendered node-insert-event ${viewClass}` },
     [sizer],
   );
   const titleParent = el("div", { cls: "view-header-title-parent" });
@@ -304,14 +319,18 @@ function start(index: SiteIndex): void {
         return;
       }
       if (page.props.length > 0) {
-        header.appendChild(propertiesView(page.props));
+        header.appendChild(propertiesView(page.props, icons));
       }
       parts.push(...noteBlocks(page.html));
       headings = page.h;
     }
     sizer.replaceChildren(...parts);
     current = id;
-    addFolding(sizer, icons["right-triangle"] ?? "");
+    dressLists(sizer, triangle, canFold("lists"));
+    dressEmbeds(sizer, icons["maximize-2"] ?? "");
+    if (canFold("headings")) {
+      addFolding(sizer, triangle);
+    }
     drawOutline(headings);
     drawBacklinks(id);
     drawLocalGraph();
@@ -446,6 +465,10 @@ function start(index: SiteIndex): void {
   watchPreviews(app, {
     isNote: (id) => index.notes[id] !== undefined,
     load: loadNote,
+    dress: (view) => {
+      dressLists(view, triangle, false);
+      dressEmbeds(view, icons["maximize-2"] ?? "");
+    },
   });
 
   // Where a note is scrolled to is kept with its place in the history of the browser

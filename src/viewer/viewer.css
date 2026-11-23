@@ -230,6 +230,12 @@ video.v2s-left-out {
   z-index: 1;
 }
 
+/* As Obsidian sets it on the block itself: a table wider than the note is moved sideways inside its own block */
+
+.v2s .el-table {
+  overflow-x: auto;
+}
+
 /* ---- What a folded heading hides ---- */
 
 .v2s-folded {

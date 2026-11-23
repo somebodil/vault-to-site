@@ -11,6 +11,7 @@ function index(notes: Record<string, string>, files: Record<string, string> = {}
     searchParts: 0,
     theme: "light",
     inlineTitle: true,
+  viewClass: "",
     bodyStyle: "",
     icons: {},
   };

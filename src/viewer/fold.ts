@@ -46,7 +46,7 @@ export function addFolding(sizer: HTMLElement, triangle: string): void {
     const hidden = hiddenBlocks(
       blocks.map((block) => {
         const heading = headingOf(block);
-        return { level: levelOf(heading), isFolded: heading?.classList.contains("is-collapsed") === true };
+        return { level: levelOf(heading), isFolded: heading !== null && block.classList.contains("is-collapsed") };
       }),
     );
     for (const [at, block] of blocks.entries()) {
@@ -58,11 +58,12 @@ export function addFolding(sizer: HTMLElement, triangle: string): void {
     if (heading === null) {
       continue;
     }
-    const indicator = el("div", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } });
+    const indicator = el("span", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } });
     indicator.innerHTML = triangle;
     indicator.addEventListener("click", (event) => {
       event.stopPropagation();
-      const isFolded = heading.classList.toggle("is-collapsed");
+      // As in Obsidian, the block of the heading says that it is folded, and so does the triangle
+      const isFolded = block.classList.toggle("is-collapsed");
       indicator.classList.toggle("is-collapsed", isFolded);
       apply();
     });

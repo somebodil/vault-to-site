@@ -1,4 +1,5 @@
 import type { DataAdapter } from "obsidian";
+import { rewriteCss, topRuleCount, type CssChoice } from "./css.ts";
 import { extensionOf, hashOf } from "./ids.ts";
 
 /** The style sheets Obsidian has loaded, as one sheet for the site, and the files that sheet points to */
@@ -30,38 +31,13 @@ export async function captureStyles(doc: Document, namesKeptOut: (text: string) 
   /** The sheets that are taken from the web as they are. They have to stand before every rule. */
   const imports: string[] = [];
   const wanted = new Map<string, string>();
+  const made = new Set<string>();
   const resources: CapturedStyles["resources"] = [];
   const inlined = new Set<string>();
 
-  /** The rules of a sheet as text, with every address in them made one of the site, or null for a sheet that cannot be read */
-  const textOfSheet = (sheet: CSSStyleSheet, depth: number): string | null => {
-    let rules: CSSRuleList;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      // A sheet from another site cannot be read
-      return null;
-    }
-    const base = sheet.href ?? doc.baseURI;
-    let text = "";
-    for (const rule of Array.from(rules)) {
-      if (rule instanceof CSSImportRule) {
-        // All sheets become one, and a sheet can only take in another at its very start. So a sheet of
-        // the web is taken in at the start of the one, and a sheet that Obsidian serves is written out here.
-        const inner = depth < 8 ? textOfSheet(rule.styleSheet as CSSStyleSheet, depth + 1) : null;
-        if (localAddress(rule.href, base, doc) === null) {
-          const address = absoluteWebAddress(rule.href, base);
-          if (address !== null) {
-            imports.push(`@import url("${address}")${rule.media.mediaText === "" ? "" : " " + rule.media.mediaText};`);
-          }
-        } else if (inner !== null) {
-          text += (rule.media.mediaText === "" ? inner : `@media ${rule.media.mediaText} {\n${inner}}`) + "\n";
-        }
-        continue;
-      }
-      text += (rule instanceof CSSFontFaceRule ? withWholeWeightRange(textOf(rule, namesKeptOut)) : textOf(rule, namesKeptOut)) + "\n";
-    }
-    return text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
+  /** A text of rules with every address in it made one of the site */
+  const withSiteAddresses = (text: string, base: string): string =>
+    text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
       const address = (double ?? single ?? bare ?? "").trim();
       if (address.startsWith("data:")) {
         const file = fileOfData(address);
@@ -75,7 +51,7 @@ export async function captureStyles(doc: Document, namesKeptOut: (text: string) 
         return `url("${file.name}")`;
       }
       // An address this function has written already, in a sheet that was taken into this one
-      if (address.startsWith("res/") && (inlined.has(address) || [...wanted.values()].includes(address))) {
+      if (inlined.has(address) || made.has(address)) {
         return whole;
       }
       const local = localAddress(address, base, doc);
@@ -89,18 +65,100 @@ export async function captureStyles(doc: Document, namesKeptOut: (text: string) 
         const extension = extensionOf(new URL(local).pathname);
         name = "res/" + hashOf(local) + (extension === "" ? "" : "." + extension);
         wanted.set(local, name);
+        made.add(name);
       }
       return `url("${name}")`;
     });
+
+  const read = async (address: string): Promise<string | null> => {
+    try {
+      // A file that Obsidian serves to its own page. `requestUrl` is for the web and cannot reach it.
+      const response = await doc.defaultView?.fetch(address);
+      return response?.ok === true ? await response.text() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** Another sheet that a sheet takes in: one of the web is taken in at the start of the one sheet of the site, as only there a sheet can take in another */
+  const takeIn = (address: string, rest: string, base: string): void => {
+    const whole = absoluteWebAddress(address, base);
+    if (whole !== null) {
+      imports.push(`@import url("${whole}")${rest === "" ? "" : " " + rest};`);
+    }
+  };
+
+  const choice: CssChoice = {
+    drops: (selector, block) => namesPathIn(selector, namesKeptOut) || (block.includes("{") && namesPathIn(block, namesKeptOut)),
+    font: withWholeWeightRange,
+  };
+
+  /** A sheet from the text it was written in */
+  const fromText = async (text: string, base: string, depth: number): Promise<string> => {
+    let css = "";
+    for (const piece of rewriteCss(text, choice)) {
+      if (typeof piece === "string") {
+        css += withSiteAddresses(piece, base);
+        continue;
+      }
+      const local = localAddress(piece.address, base, doc);
+      if (local === null) {
+        takeIn(piece.address, piece.rest, base);
+        continue;
+      }
+      // A sheet that Obsidian serves is written out where it was taken in
+      const inner = depth < 8 ? await read(local) : null;
+      if (inner !== null) {
+        const innerCss = await fromText(inner, local, depth + 1);
+        css += piece.rest === "" || /^(layer|supports)\b/i.test(piece.rest) ? innerCss : `@media ${piece.rest}{\n${innerCss}}\n`;
+      }
+    }
+    return css;
+  };
+
+  /**
+   * A sheet from what the browser holds of it, for a sheet whose text is not
+   * there: one that a plugin has made with script. Null for a sheet that
+   * cannot be read.
+   */
+  const fromRules = (sheet: CSSStyleSheet, depth: number): string | null => {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      // A sheet from another site cannot be read
+      return null;
+    }
+    const base = sheet.href ?? doc.baseURI;
+    let text = "";
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSImportRule) {
+        const inner = depth < 8 ? fromRules(rule.styleSheet as CSSStyleSheet, depth + 1) : null;
+        if (localAddress(rule.href, base, doc) === null) {
+          takeIn(rule.href, rule.media.mediaText, base);
+        } else if (inner !== null) {
+          text += (rule.media.mediaText === "" ? inner : `@media ${rule.media.mediaText} {\n${inner}}`) + "\n";
+        }
+        continue;
+      }
+      text += (rule instanceof CSSFontFaceRule ? withWholeWeightRange(textOf(rule, namesKeptOut)) : textOf(rule, namesKeptOut)) + "\n";
+    }
+    return withSiteAddresses(text, base);
   };
 
   // The sheets of the page, and after them the sheets that plugins make with script: those are not among
   // the sheets of the page, and they come later when the browser decides which rule holds
   for (const sheet of allSheets(doc)) {
-    const text = textOfSheet(sheet, 0);
-    if (text !== null) {
-      parts.push(text);
+    if (sheet.disabled) {
+      continue;
     }
+    const written = await writtenText(sheet, doc, read);
+    const css = written === null ? fromRules(sheet, 0) : await fromText(written.text, written.base, 0);
+    if (css === null) {
+      continue;
+    }
+    const media = sheet.media.mediaText;
+    parts.push(media === "" || media === "all" ? css : `@media ${media}{\n${css}}\n`);
   }
 
   for (const [address, name] of wanted) {
@@ -119,6 +177,28 @@ export async function captureStyles(doc: Document, namesKeptOut: (text: string) 
     }
   }
   return { css: [...new Set(imports), ...parts].join("\n"), resources };
+}
+
+/**
+ * The text a sheet was written in, and the address its own addresses are
+ * read from. Null when the text is not there or is not what the browser
+ * holds: a sheet made with script has none, and script can add rules to a
+ * sheet after it was read. Then the sheet has more rules than its text.
+ */
+async function writtenText(sheet: CSSStyleSheet, doc: Document, read: (address: string) => Promise<string | null>): Promise<{ text: string; base: string } | null> {
+  let held: number;
+  try {
+    held = sheet.cssRules.length;
+  } catch {
+    return null;
+  }
+  const owner = sheet.ownerNode;
+  const kind = owner?.nodeName.toUpperCase() ?? "";
+  const text = kind === "STYLE" ? (owner?.textContent ?? "") : kind === "LINK" && sheet.href !== null ? await read(sheet.href) : null;
+  if (text === null || text.trim() === "" || topRuleCount(text) < held) {
+    return null;
+  }
+  return { text, base: sheet.href ?? doc.baseURI };
 }
 
 /** The whole address of a sheet of the web, or null for what is not of the web */
@@ -196,7 +276,8 @@ function withWholeWeightRange(rule: string): string {
   if (named.test(tail)) {
     return head + (data?.[0] ?? "") + tail.replace(named, weight);
   }
-  return rule.replace(/\}\s*$/, ` ${weight} }`);
+  // The whole rule, or only what is inside its block
+  return /\}\s*$/.test(rule) ? rule.replace(/\}\s*$/, ` ${weight} }`) : `${rule.replace(/[;\s]*$/, "")}; ${weight}`;
 }
 
 /** From this length on, a file that is written into a sheet is taken out of it */
@@ -278,15 +359,15 @@ export function quotedInSelector(selector: string): string[] {
  * attribute with the name of a note that is not in the site, as a snippet
  * does that hides the tab of a note.
  */
+function namesPathIn(selector: string, namesKeptOut: (text: string) => boolean): boolean {
+  return NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector) || (selector.includes("[") && quotedInSelector(selector).some(namesKeptOut));
+}
+
+/** The same for a rule as the browser holds it */
 function namesPath(rule: CSSRule, namesKeptOut: (text: string) => boolean): boolean {
   const selector = (rule as { selectorText?: unknown }).selectorText;
-  if (typeof selector === "string") {
-    if (NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector)) {
-      return true;
-    }
-    if (selector.includes("[") && quotedInSelector(selector).some(namesKeptOut)) {
-      return true;
-    }
+  if (typeof selector === "string" && namesPathIn(selector, namesKeptOut)) {
+    return true;
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
   return inner !== undefined && Array.from(inner).some((one) => namesPath(one, namesKeptOut));

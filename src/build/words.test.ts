@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { shownValue, shownWords } from "./words.ts";
+import { shownValue, shownWords, soleLink } from "./words.ts";
 
 describe("shownWords", () => {
   it("shows the words of a link and not where it leads", () => {
@@ -91,5 +91,18 @@ describe("shownWords", () => {
 describe("shownValue", () => {
   it("goes into lists and nested values, and leaves numbers and the rest alone", () => {
     assert.deepEqual(shownValue(["[[A/B|x]]", 3, true, null, { related: "[[C/D]]", n: [1, "[y](z.md)"] }]), ["x", 3, true, null, { related: "D", n: [1, "y"] }]);
+  });
+});
+
+describe("soleLink", () => {
+  it("gives what a text links to when all of it is one link", () => {
+    assert.equal(soleLink("[[Other]]"), "Other");
+    assert.equal(soleLink(" [[Folder/Note#Part two|some words]] "), "Folder/Note#Part two");
+  });
+
+  it("gives nothing for text around a link, for two links, or for no link", () => {
+    for (const text of ["see [[Other]]", "[[A]] [[B]]", "Other", "[[ ]]", "[x](Other.md)", ""]) {
+      assert.equal(soleLink(text), null, text);
+    }
   });
 });

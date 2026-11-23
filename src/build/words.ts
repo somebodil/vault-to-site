@@ -159,6 +159,16 @@ export function shownWords(text: string): string {
   return shown.replace(INNER_ADDRESS, "");
 }
 
+/**
+ * What a text links to when all of it is one link in double brackets, as a
+ * property that names another note is written: `[[Folder/Note#Part|words]]`
+ * gives `Folder/Note#Part`. Null for any other text.
+ */
+export function soleLink(text: string): string | null {
+  const whole = /^\s*\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]\s*$/.exec(text);
+  return whole?.[1] === undefined || whole[1].trim() === "" ? null : whole[1].trim();
+}
+
 /** The same for the value of a property, whatever it holds */
 export function shownValue(value: PropertyValue): PropertyValue {
   if (typeof value === "string") {

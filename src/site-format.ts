@@ -10,6 +10,15 @@
 /** A value of a property of a note */
 export type PropertyValue = string | number | boolean | null | PropertyValue[] | { [key: string]: PropertyValue };
 
+/**
+ * A property of a note: its name, its value as the words it shows, the kind
+ * Obsidian shows it as (`text`, `multitext`, `number`, `checkbox`, `date`,
+ * `datetime`, `tags`, `aliases`), and for a value that is a link to a note of
+ * the site, or a list with such links, the address in the site that each
+ * item leads to.
+ */
+export type PropertyEntry = [key: string, value: PropertyValue, type?: string, to?: (string | null)[]];
+
 /** A note in the list: enough for the tree and the links, without its text */
 export interface NoteEntry {
   /** Path in the vault */
@@ -37,6 +46,8 @@ export interface SiteIndex {
   theme: "dark" | "light";
   /** True when Obsidian shows the name of a note above its text */
   inlineTitle: boolean;
+  /** The classes the reading view of Obsidian had by its settings, as the one for a line of readable length */
+  viewClass: string;
   /** The inline style of the body of Obsidian: the size of the text, the accent color */
   bodyStyle: string;
   /** Icons of Obsidian as SVG, by name */
@@ -48,7 +59,7 @@ export interface NotePage {
   /** The note as XML (XHTML): it is read back exactly as Obsidian made it, which HTML is not */
   html: string;
   /** The properties, in the order of the note */
-  props: [key: string, value: PropertyValue][];
+  props: PropertyEntry[];
   /** Headings, for the outline: level and text */
   h: [level: number, text: string][];
 }
@@ -71,6 +82,7 @@ export function noteAddress(id: string, heading?: string): string {
 /** The names of the icons the site takes from Obsidian */
 export const ICON_NAMES = [
   "right-triangle",
+  "maximize-2",
   "search",
   "sidebar-left",
   "sidebar-right",

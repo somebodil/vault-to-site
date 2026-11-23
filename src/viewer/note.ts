@@ -1,4 +1,4 @@
-import type { PropertyValue } from "../site-format.ts";
+import type { PropertyEntry, PropertyValue } from "../site-format.ts";
 import { el } from "./dom.ts";
 
 /** The name of a note or file, without its folder and without `.md` */
@@ -23,7 +23,10 @@ export function noteBlocks(xml: string): HTMLElement[] {
   const blocks: HTMLElement[] = [];
   for (const node of noteNodes(xml)) {
     if (node instanceof Element) {
-      blocks.push(el("div", { cls: `el-${node.localName.toLowerCase()}` }, [node]));
+      const name = node.localName.toLowerCase();
+      // What Obsidian draws from a block of code, as a diagram, keeps the name of the block it was written as
+      const isDrawnCode = name === "div" && /(^|\s)(mermaid|block-language-\S+)(\s|$)/.test(node.getAttribute("class") ?? "");
+      blocks.push(el("div", { cls: isDrawnCode ? "el-pre" : `el-${name}` }, [node]));
     } else if ((node.textContent ?? "").trim() !== "") {
       blocks.push(el("div", {}, [node]));
     }
@@ -70,37 +73,93 @@ export function fileView(asset: string, path: string): HTMLElement {
 }
 
 /** The properties of a note, with the classes Obsidian gives them */
-export function propertiesView(props: [string, PropertyValue][]): HTMLElement {
-  const valueEl = (value: PropertyValue): HTMLElement => {
+export function propertiesView(props: PropertyEntry[], icons: Record<string, string>): HTMLElement {
+  /** One item of a value: a link when it leads to a note of the site, else its words */
+  const linkOr = (cls: string, words: string, to: string | null | undefined, plainCls: string): HTMLElement => {
+    if (to === null || to === undefined) {
+      return el("div", { cls: plainCls, text: words });
+    }
+    const link = el("div", { cls: `${cls} internal-link`, text: words, attr: { role: "link", tabindex: "0" } });
+    const go = (): void => {
+      window.location.hash = to;
+    };
+    link.addEventListener("click", go);
+    link.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        go();
+      }
+    });
+    return link;
+  };
+  const field = (cls: string, type: string, value: string): HTMLElement => el("input", { cls, attr: { type, value, readonly: "", tabindex: "-1", placeholder: "Empty" } });
+
+  const valueEl = (value: PropertyValue, kind: string, to: (string | null)[] | undefined): HTMLElement => {
     if (Array.isArray(value)) {
       return el(
         "div",
-        { cls: "multi-select-container" },
-        value.map((item) => el("div", { cls: "multi-select-pill" }, [el("div", { cls: "multi-select-pill-content", text: plain(item) })])),
+        { cls: "multi-select-container", attr: { tabindex: "-1" } },
+        value.map((item, at) =>
+          el("div", { cls: "multi-select-pill" }, [
+            kind === "tags"
+              ? el("div", { cls: "multi-select-pill-content" }, [el("span", { text: plain(item) })])
+              : linkOr("multi-select-pill-content", plain(item), to?.[at], "multi-select-pill-content"),
+          ]),
+        ),
       );
     }
     if (typeof value === "boolean") {
-      const box = el("input", { cls: "metadata-input-checkbox", attr: { type: "checkbox", disabled: "" } });
+      const box = el("input", { cls: "metadata-input-checkbox", attr: { type: "checkbox", "data-indeterminate": "false" } });
       box.checked = value;
       return box;
     }
-    return el("div", { cls: "metadata-input-longtext", text: plain(value) });
+    // A kind that the value does not fit is shown as text, as the words of the note are
+    if (kind === "number" && typeof value === "number") {
+      return field("metadata-input metadata-input-number", "number", String(value));
+    }
+    if (kind === "date" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return field("metadata-input metadata-input-text mod-date", "date", value);
+    }
+    if (kind === "datetime" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+      return field("metadata-input metadata-input-text mod-datetime", "datetime-local", value.slice(0, 19));
+    }
+    if (to?.[0] !== null && to?.[0] !== undefined) {
+      return el("div", { cls: "metadata-link" }, [linkOr("metadata-link-inner", plain(value), to[0], "metadata-link-inner")]);
+    }
+    return el("div", { cls: "metadata-input-longtext", text: plain(value), attr: { placeholder: "Empty" } });
   };
-  return el("div", { cls: "metadata-container", attr: { tabindex: "-1" } }, [
-    el("div", { cls: "metadata-properties-heading" }, [el("div", { cls: "metadata-properties-title", text: "Properties" })]),
+
+  const container = el("div", { cls: "metadata-container", attr: { tabindex: "-1", "data-property-count": String(props.length) } });
+  const indicator = el("div", { cls: "collapse-indicator collapse-icon" });
+  indicator.innerHTML = icons["right-triangle"] ?? "";
+  const heading = el("div", { cls: "metadata-properties-heading", attr: { tabindex: "0", role: "button" } }, [indicator, el("div", { cls: "metadata-properties-title", text: "Properties" })]);
+  const fold = (): void => {
+    indicator.classList.toggle("is-collapsed", container.classList.toggle("is-collapsed"));
+  };
+  heading.addEventListener("click", fold);
+  heading.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      fold();
+    }
+  });
+  container.append(
+    heading,
     el("div", { cls: "metadata-content" }, [
       el(
         "div",
         { cls: "metadata-properties" },
-        props.map(([key, value]) =>
-          el("div", { cls: "metadata-property", attr: { "data-property-key": key } }, [
-            el("div", { cls: "metadata-property-key" }, [el("div", { cls: "metadata-property-key-input", text: key })]),
-            el("div", { cls: "metadata-property-value" }, [valueEl(value)]),
-          ]),
-        ),
+        props.map(([key, value, kind = "text", to]) => {
+          const icon = el("span", { cls: "metadata-property-icon" });
+          icon.innerHTML = icons[`property-${kind}`] ?? "";
+          return el("div", { cls: "metadata-property", attr: { "data-property-key": key } }, [
+            el("div", { cls: "metadata-property-key" }, [icon, field("metadata-property-key-input", "text", key)]),
+            el("div", { cls: "metadata-property-value", attr: { "data-property-type": kind } }, [valueEl(value, kind, to)]),
+          ]);
+        }),
       ),
     ]),
-  ]);
+  );
+  return container;
 }
 
 function plain(value: PropertyValue): string {
