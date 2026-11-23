@@ -23,7 +23,6 @@ async function archive(files: [name: string, data: Uint8Array][], deflate?: Defl
   }
   await zip.finish();
   const whole = Buffer.concat(pieces);
-  assert.equal(zip.length, whole.length);
   return whole;
 }
 

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findMentions, mentionFinder } from "./mentions.ts";
+import { mentionFinder, type Mention } from "./mentions.ts";
+
+/** What a finder finds in pages that are all there */
+function findMentions(pages: readonly { path: string; text: string }[], keptOut: readonly string[]): Mention[] {
+  const finder = mentionFinder(keptOut);
+  for (const page of pages) {
+    finder.add(page.path, page.text);
+  }
+  return finder.found();
+}
 
 describe("findMentions", () => {
   const pages = [

@@ -1,4 +1,4 @@
-import type { NotePage } from "../site-format.ts";
+import { readNoteAddress, type NotePage } from "../site-format.ts";
 import { el } from "./dom.ts";
 import { noteBlocks } from "./note.ts";
 
@@ -97,7 +97,7 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
       window.clearTimeout(leaving);
       return;
     }
-    const [, id = "", heading = ""] = href.split("/");
+    const { id, heading } = readNoteAddress(href);
     if (!host.isNote(id)) {
       return;
     }
@@ -105,13 +105,7 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     window.clearTimeout(leaving);
     wanted = href;
     waiting = window.setTimeout(() => {
-      let name = heading;
-      try {
-        name = decodeURIComponent(heading);
-      } catch {
-        // Shown without going to the heading
-      }
-      void open(link, id, name);
+      void open(link, id, heading);
     }, REST);
   });
   root.addEventListener("mouseout", (event) => {

@@ -230,6 +230,14 @@ video.v2s-left-out {
   z-index: 1;
 }
 
+/* The first thing in the reading view of Obsidian, which sets its size on the element itself */
+
+.v2s .markdown-preview-pusher {
+  width: 1px;
+  height: 0.1px;
+  margin-bottom: 0;
+}
+
 /* As Obsidian sets it on the block itself: a table wider than the note is moved sideways inside its own block */
 
 .v2s .el-table {

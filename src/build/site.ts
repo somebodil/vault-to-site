@@ -1,6 +1,6 @@
 import { type App, getIcon, normalizePath, parseLinktext, Platform, TFile } from "obsidian";
 import { signatureOf } from "../select/choose.ts";
-import type { Settings } from "../settings.ts";
+import { placeOf, type Settings } from "../settings.ts";
 import {
   ICON_NAMES,
   type FileEntry,
@@ -14,7 +14,7 @@ import {
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
-import { FolderOutput, MARKER, type SiteOutput, ZipOutput, zipPath } from "./output.ts";
+import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { siteReadme } from "./readme.ts";
 import { headingOf, renderNote, resourceMap, type RenderContext } from "./render.ts";
@@ -48,7 +48,7 @@ export interface BuildResult {
 export class BuildStopped extends Error {}
 
 /** A part of the text to search in is closed when it is this long, so that no single script gets large */
-const SEARCH_PART_LENGTH = 300_000;
+const NOTES_A_PART = 100;
 
 /** What a zip archive can hold without the 64-bit form of the format. The site has some files of its own beside the notes. */
 const MOST_FILES_IN_ZIP = 65_535 - 200;
@@ -126,7 +126,7 @@ async function build(
     }),
   );
 
-  const place = settings.format === "zip" ? zipPath(normalizePath(settings.zip)) : normalizePath(settings.folder);
+  const place = placeOf(settings, normalizePath);
   const output: SiteOutput =
     settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place);
   await output.prepare();
@@ -145,51 +145,36 @@ async function build(
 
   const doc = activeDocument;
   const stage = doc.body.createDiv({ cls: "vault-to-site-stage" });
+  // What is drawn to fit its place, as a diagram is, is drawn as wide as Obsidian shows a note now
+  stage.setCssProps({ "--vault-to-site-stage-width": `${String(noteWidth(app, doc))}px` });
   const viewClass = viewClasses(app);
-  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage, viewClass };
+  const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage, viewClass, made: new Set(assets.values()) };
   const failed: BuildResult["failed"] = [];
   const unfinished: string[] = [];
   const mentions = mentionFinder(choice.guarded);
-  // The words of the notes, for the search. A part is written when it is full, so that the words of a
-  // large vault are not all held at once.
-  let part: SearchPart = [];
-  let partLength = 0;
-  let parts = 0;
-  const closePart = async (): Promise<void> => {
-    if (part.length === 0) {
-      return;
+  // The words of the notes, for the search, in parts. A part is a run of notes that follow each other, and
+  // it is written as soon as its notes are drawn: the words of a large vault are not all held at once, also
+  // not while one slow note is waited for. The same vault gives the same parts, whatever order the notes
+  // are done in, so that a site kept in a repository changes only where the notes have changed.
+  const partCount = Math.ceil(choice.notes.length / NOTES_A_PART);
+  const openParts = new Map<number, { texts: ([string, string] | null)[]; left: number }>();
+  /** Takes what a note gives to the search, or nothing for a note that was passed over */
+  const settle = async (at: number, words: [string, string] | null): Promise<void> => {
+    const number = Math.floor(at / NOTES_A_PART);
+    let part = openParts.get(number);
+    if (part === undefined) {
+      const size = Math.min(NOTES_A_PART, choice.notes.length - number * NOTES_A_PART);
+      part = { texts: new Array<[string, string] | null>(size).fill(null), left: size };
+      openParts.set(number, part);
     }
-    const full = part;
-    const number = parts++;
-    part = [];
-    partLength = 0;
-    await output.text(`data/s/${String(number)}.js`, `__site.search(${String(number)},${JSON.stringify(full)});\n`);
+    part.texts[at - number * NOTES_A_PART] = words;
+    if (--part.left === 0) {
+      openParts.delete(number);
+      const full: SearchPart = part.texts.filter((text) => text !== null);
+      await output.text(`data/s/${String(number)}.js`, `__site.search(${String(number)},${JSON.stringify(full)});\n`);
+    }
   };
-
-  // Several notes are drawn at a time, and they are not done in the order they were begun in. What the site
-  // holds of them is put in the order of the notes all the same: the same vault gives the same files, so
-  // that a site kept in a repository changes only where the notes have changed.
   const entries: ([string, NoteEntry] | undefined)[] = [];
-  const drawn = new Map<number, [string, string] | null>();
-  let inOrder = 0;
-  let ordering: Promise<void> = Promise.resolve();
-  /** Takes what a note gives to the search, or nothing for a note that was passed over, and writes on what is next in the order */
-  const settle = (at: number, words: [string, string] | null): Promise<void> => {
-    drawn.set(at, words);
-    ordering = ordering.then(async () => {
-      for (let next = drawn.get(inOrder); next !== undefined; next = drawn.get(inOrder)) {
-        drawn.delete(inOrder++);
-        if (next !== null) {
-          part.push(next);
-          partLength += next[1].length;
-          if (partLength >= SEARCH_PART_LENGTH) {
-            await closePart();
-          }
-        }
-      }
-    });
-    return ordering;
-  };
 
   /** The kinds of property the notes of the site have: each has its sign beside the name of the property */
   const kinds = new Set<string>();
@@ -299,19 +284,27 @@ async function build(
       stage.remove();
     }
 
-    await closePart();
-
     const files: Record<string, FileEntry> = {};
     for (const path of choice.files) {
-      check();
-      progress(done, total, path);
       const asset = assets.get(path);
       if (asset !== undefined) {
-        await output.copy(path, asset);
         files[idOf(path)] = { p: path, a: asset };
       }
-      done++;
     }
+    let nextFile = 0;
+    const copier = async (): Promise<void> => {
+      while (nextFile < choice.files.length) {
+        check();
+        const path = choice.files[nextFile++] ?? "";
+        const asset = assets.get(path);
+        progress(done, total, path);
+        if (asset !== undefined) {
+          await output.copy(path, asset);
+        }
+        done++;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(output.copiesAtATime, choice.files.length) }, copier));
 
     const icons: Record<string, string> = {};
     for (const name of ICON_NAMES) {
@@ -331,7 +324,7 @@ async function build(
       name: app.vault.getName(),
       notes,
       files,
-      searchParts: parts,
+      searchParts: partCount,
       theme: doc.body.classList.contains("theme-dark") ? "dark" : "light",
       inlineTitle: doc.body.classList.contains("show-inline-title"),
       viewClass,
@@ -368,6 +361,17 @@ async function build(
     await output.abort().catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * How wide the part of Obsidian is that shows the notes. With a line of
+ * readable length, a note is narrower than this by the setting; without it,
+ * a note is as wide as this.
+ */
+function noteWidth(app: App, doc: Document): number {
+  const main = (app.workspace.rootSplit as unknown as { containerEl?: HTMLElement }).containerEl;
+  const width = main?.clientWidth ?? 0;
+  return Math.max(320, width > 0 ? width : doc.body.clientWidth);
 }
 
 /** What Obsidian keeps of the kinds of the properties. Not a part of what it promises to plugins, so each piece is asked for with care. */

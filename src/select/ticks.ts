@@ -92,17 +92,15 @@ export function renameTicks(ticks: Ticks, from: string, to: string, isOntoGone =
   const isMoved = (path: string): boolean => isAtOrUnder(path, from) && from !== "";
   const moved = (path: string): string => movedPath(path, from, to);
   const isStale = (path: string): boolean => isOntoGone && !isMoved(path) && to !== "" && isAtOrUnder(path, to);
-  const follow = (paths: string[]): string[] => [...new Set(paths.filter((path) => !isStale(path)).map((path) => (isMoved(path) ? moved(path) : path)))].sort();
+  const follow = (paths: string[]): string[] => [...new Set(paths.filter((path) => !isStale(path)).map(moved))].sort();
   return { on: follow(ticks.on), off: follow(ticks.off) };
 }
 
 /**
- * The decisions that point at nothing: paths that are in a list and not in
- * the vault. A path that was left out and is gone was deleted, or it was
- * renamed while the plugin could not see it, as by a sync: then what it was
- * is back in the site.
+ * The paths that were left out and are not in the vault. Such a path was
+ * deleted, or it was renamed while the plugin could not see it, as by a
+ * sync: then what it was is back in the site.
  */
-export function missingTicks(ticks: Ticks, exists: (path: string) => boolean): Ticks {
-  const gone = (path: string): boolean => path !== "" && !exists(path);
-  return { on: ticks.on.filter(gone), off: ticks.off.filter(gone) };
+export function missingLeftOut(ticks: Ticks, exists: (path: string) => boolean): string[] {
+  return ticks.off.filter((path) => path !== "" && !exists(path));
 }

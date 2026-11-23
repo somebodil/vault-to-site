@@ -1,12 +1,11 @@
 import { type App, Modal, normalizePath, Platform, Setting } from "obsidian";
-import { zipPath } from "../build/output.ts";
 import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
 import { signatureOf, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
 import { invalidPropertyLines } from "../select/properties.ts";
-import { missingTicks, parentOf, setTick, ticker } from "../select/ticks.ts";
-import type { Settings } from "../settings.ts";
+import { missingLeftOut, parentOf, setTick, ticker } from "../select/ticks.ts";
+import { placeOf, type Settings } from "../settings.ts";
 
 /** What the dialog needs of the plugin */
 export interface BuildHost {
@@ -24,7 +23,8 @@ interface Folder {
   total: number;
 }
 
-const byName = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+/** One collator for all names: `localeCompare` with options makes a new one for every pair it compares */
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 
 /**
@@ -302,7 +302,7 @@ export class BuildModal extends Modal {
 
   /** The paths that were left out of a ticked folder and are not in the vault any more */
   private goneLeftOut(): string[] {
-    return missingTicks(this.settings.ticks, (path) => this.app.vault.getAbstractFileByPath(path) !== null).off;
+    return missingLeftOut(this.settings.ticks, (path) => this.app.vault.getAbstractFileByPath(path) !== null);
   }
 
   // ---- Step 2: what a build would hold ----
@@ -317,7 +317,7 @@ export class BuildModal extends Modal {
       return;
     }
     const place =
-      this.settings.format === "zip" ? `the archive "${zipPath(normalizePath(this.settings.zip))}"` : `the folder "${normalizePath(this.settings.folder)}"`;
+      `${this.settings.format === "zip" ? "the archive" : "the folder"} "${placeOf(this.settings, normalizePath)}"`;
 
     contentEl.createEl("p", {
       cls: "vault-to-site-lead",

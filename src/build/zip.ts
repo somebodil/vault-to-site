@@ -108,11 +108,6 @@ export class ZipWriter {
     this.stamp = dosDateTime(date);
   }
 
-  /** How many bytes of the archive were handed on so far */
-  get length(): number {
-    return this.offset;
-  }
-
   /** Adds a file. The name is a path with `/` between its parts. */
   async add(name: string, data: Uint8Array): Promise<void> {
     await this.put(await this.pack(name, data));

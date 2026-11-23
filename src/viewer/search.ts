@@ -34,6 +34,8 @@ export function createSearch(host: SearchHost): Search {
     title: titleOf(entry.p),
     isNote: host.index.notes[id] !== undefined,
   }));
+  // In the order of their paths once: a search then sorts only by how well a name fits, and names that fit as well stay in this order
+  names.sort((a, b) => a.path.localeCompare(b.path));
   const folderOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
   const close = (): void => {
@@ -89,7 +91,7 @@ export function createSearch(host: SearchHost): Search {
       const named = names
         .map((entry) => ({ entry, score: typed === "" ? (entry.isNote ? 1 : 0) : nameScore(typed, entry.title) }))
         .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score || a.entry.path.localeCompare(b.entry.path))
+        .sort((a, b) => b.score - a.score)
         .slice(0, typed === "" ? 30 : MOST_NAMES);
       for (const { entry } of named) {
         row(entry.title, folderOf(entry.path), () => host.go(entry.id, ""));

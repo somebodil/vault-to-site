@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isAtOrUnder, missingTicks, movedPath, NO_TICKS, parentOf, renameTicks, setTick, ticker, type Ticks } from "./ticks.ts";
+import { isAtOrUnder, missingLeftOut, movedPath, NO_TICKS, parentOf, renameTicks, setTick, ticker, type Ticks } from "./ticks.ts";
 
 describe("parentOf", () => {
   it("is the folder a path is in, and the root for a top-level path", () => {
@@ -110,11 +110,11 @@ describe("renameTicks onto a path that something was deleted from", () => {
   });
 });
 
-describe("missingTicks", () => {
+describe("missingLeftOut", () => {
   it("names the listed paths that are not in the vault", () => {
     const ticks: Ticks = { on: ["", "Gone"], off: ["Notes/Private", "Notes/old.md"] };
     const exists = (path: string): boolean => path === "Notes/Private";
-    assert.deepEqual(missingTicks(ticks, exists), { on: ["Gone"], off: ["Notes/old.md"] });
+    assert.deepEqual(missingLeftOut(ticks, exists), ["Notes/old.md"]);
   });
 });
 

@@ -141,12 +141,3 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
     },
   };
 }
-
-/** The same for pages that are all there */
-export function findMentions(pages: readonly { path: string; text: string }[], keptOut: readonly string[]): Mention[] {
-  const finder = mentionFinder(keptOut);
-  for (const page of pages) {
-    finder.add(page.path, page.text);
-  }
-  return finder.found();
-}

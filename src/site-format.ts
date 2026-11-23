@@ -79,6 +79,19 @@ export function noteAddress(id: string, heading?: string): string {
   return "#/" + id + (heading === undefined || heading === "" ? "" : "/" + encodeURIComponent(heading));
 }
 
+/** Reads an address that `noteAddress` wrote: the id of the note and the heading, which is empty for the note as a whole */
+export function readNoteAddress(address: string): { id: string; heading: string } {
+  const decoded = (text: string): string => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  };
+  const [, id = "", ...rest] = address.split("/");
+  return { id: decoded(id), heading: decoded(rest.join("/")) };
+}
+
 /** The names of the icons the site takes from Obsidian */
 export const ICON_NAMES = [
   "right-triangle",
@@ -88,12 +101,6 @@ export const ICON_NAMES = [
   "sidebar-right",
   "sun",
   "moon",
-  "list",
-  "links-coming-in",
   "x",
-  "copy",
-  "check",
-  "file",
-  "link",
   "git-fork",
 ] as const;

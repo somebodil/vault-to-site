@@ -40,9 +40,3 @@ export function extensionOf(path: string): string {
   const dot = name.lastIndexOf(".");
   return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
 }
-
-/** The name of a file without its folder and, for a note, without `.md` */
-export function titleOf(path: string): string {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  return name.toLowerCase().endsWith(".md") ? name.slice(0, -3) : name;
-}

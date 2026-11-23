@@ -38,7 +38,8 @@ function noteNodes(xml: string): Node[] {
   const parsed = new DOMParser().parseFromString(`<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`, "application/xhtml+xml");
   const root = parsed.documentElement;
   if (root.localName === "div" && parsed.getElementsByTagName("parsererror").length === 0) {
-    return Array.from(document.importNode(root, true).childNodes);
+    // Moved, not copied: the document they were read into is not used again
+    return Array.from(document.adoptNode(root).childNodes);
   }
   const content = el("div");
   // What Obsidian drew for the note. The build has cleaned it of scripts.

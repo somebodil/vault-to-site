@@ -37,6 +37,8 @@ export interface SiteOutput {
   abort(): Promise<void>;
   /** How many writes had to be done a second time */
   rewritten: number;
+  /** How many files of the vault may be copied at a time */
+  readonly copiesAtATime: number;
 }
 
 /**
@@ -121,6 +123,8 @@ function folderOf(path: string): string {
  */
 export class FolderOutput implements SiteOutput {
   rewritten = 0;
+  /** Each copy is a file of its own, and nothing of it is held in memory */
+  readonly copiesAtATime = 6;
   private bytes = 0;
   private readonly folders: Folders;
   private readonly adapter: DataAdapter;
@@ -173,8 +177,11 @@ export class FolderOutput implements SiteOutput {
   async copy(from: string, path: string): Promise<void> {
     const full = await this.place(path);
     const size = (await this.adapter.stat(from))?.size ?? -1;
+    // The folder was emptied before the build and every file has a name of its own: only a second
+    // attempt finds something at the place
+    let attempts = 0;
     const write = async (): Promise<void> => {
-      if (await this.adapter.exists(full)) {
+      if (attempts++ > 0 && (await this.adapter.exists(full))) {
         await this.adapter.remove(full);
       }
       await this.adapter.copy(from, full);
@@ -216,6 +223,8 @@ export class FolderOutput implements SiteOutput {
  */
 export class ZipOutput implements SiteOutput {
   rewritten = 0;
+  /** A file is read whole to go into the archive: one at a time, so that only one is in memory */
+  readonly copiesAtATime = 1;
   private readonly adapter: DataAdapter;
   private readonly path: string;
   /** Where the archive is written until it is whole */
@@ -350,6 +359,12 @@ export class ZipOutput implements SiteOutput {
   }
 
   private async take(piece: Uint8Array): Promise<void> {
+    if (piece.length >= this.pieceSize) {
+      // A large file is written as it is, after what is held: put together with the rest, it would be in memory twice
+      await this.flush();
+      await this.write(piece);
+      return;
+    }
     this.pieces.push(piece);
     this.held += piece.length;
     if (this.held >= this.pieceSize) {
@@ -358,6 +373,13 @@ export class ZipOutput implements SiteOutput {
   }
 
   private async flush(): Promise<void> {
+    if (this.pieces.length === 1 && this.pieces[0] !== undefined) {
+      const only = this.pieces[0];
+      this.pieces = [];
+      this.held = 0;
+      await this.write(only);
+      return;
+    }
     const buffer = new Uint8Array(this.held);
     let at = 0;
     for (const piece of this.pieces) {
@@ -366,6 +388,14 @@ export class ZipOutput implements SiteOutput {
     }
     this.pieces = [];
     this.held = 0;
+    await this.write(buffer);
+  }
+
+  /** Puts bytes at the end of the file of the archive */
+  private async write(piece: Uint8Array): Promise<void> {
+    // The bytes as a buffer of their own: the ones of a file that was read are that already
+    const whole = piece.byteOffset === 0 && piece.byteLength === piece.buffer.byteLength ? piece : piece.slice();
+    const buffer = { length: whole.length, buffer: whole.buffer as ArrayBuffer };
     if (this.onDisk === 0) {
       const write = async (): Promise<void> => {
         await this.removePart();

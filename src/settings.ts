@@ -38,9 +38,14 @@ export const DEFAULT_SETTINGS: Settings = {
   written: [],
 };
 
-/** Where a build with these settings writes, as it is written in the setting */
-export function outputOf(settings: Settings): string {
-  return settings.format === "zip" ? settings.zip : settings.folder;
+/**
+ * Where a build with these settings writes, from the root of the vault: the
+ * archive with `.zip` at its end, or the folder.
+ *
+ * @param normal makes a path as it is written in a setting into the form the vault has
+ */
+export function placeOf(settings: Settings, normal: (path: string) => string = (path) => path): string {
+  return settings.format === "zip" ? zipPath(normal(settings.zip)) : normal(settings.folder);
 }
 
 /**

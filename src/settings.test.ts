@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_SETTINGS, followRename, outputOf, readSettings, type Settings } from "./settings.ts";
+import { DEFAULT_SETTINGS, followRename, placeOf, readSettings, type Settings } from "./settings.ts";
 
 describe("readSettings", () => {
   it("gives the defaults for nothing saved", () => {
@@ -37,10 +37,11 @@ describe("readSettings", () => {
   });
 });
 
-describe("outputOf", () => {
-  it("is the archive or the folder, by the format", () => {
-    assert.equal(outputOf({ ...DEFAULT_SETTINGS, format: "zip", zip: "a.zip", folder: "b" }), "a.zip");
-    assert.equal(outputOf({ ...DEFAULT_SETTINGS, format: "folder", zip: "a.zip", folder: "b" }), "b");
+describe("placeOf", () => {
+  it("is the archive with its ending or the folder, by the format", () => {
+    assert.equal(placeOf({ ...DEFAULT_SETTINGS, format: "zip", zip: "out/a", folder: "b" }), "out/a.zip");
+    assert.equal(placeOf({ ...DEFAULT_SETTINGS, format: "zip", zip: "a.ZIP", folder: "b" }), "a.ZIP");
+    assert.equal(placeOf({ ...DEFAULT_SETTINGS, format: "folder", zip: "a.zip", folder: " b " }, (path) => path.trim()), "b");
   });
 });
 

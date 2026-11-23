@@ -1,4 +1,4 @@
-import { normalizePath, Plugin } from "obsidian";
+import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
 import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { BuildModal } from "./ui/build-modal.ts";
@@ -31,9 +31,13 @@ export default class VaultToSitePlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         const next = followRename(this.config, oldPath, file.path, this.gone.has(file.path), normalizePath);
-        for (const path of [...this.gone]) {
-          if (isAtOrUnder(path, file.path)) {
-            this.gone.delete(path);
+        // What has come to a path makes it one that is not empty any more. Only a folder covers other paths.
+        this.gone.delete(file.path);
+        if (file instanceof TFolder) {
+          for (const path of [...this.gone]) {
+            if (isAtOrUnder(path, file.path)) {
+              this.gone.delete(path);
+            }
           }
         }
         if (JSON.stringify(next) !== JSON.stringify(this.config)) {

@@ -3,7 +3,8 @@
   position: fixed;
   top: 0;
   left: -20000px;
-  width: 800px;
+  /* As wide as Obsidian shows a note: set when a build starts */
+  width: var(--vault-to-site-stage-width, 800px);
   pointer-events: none;
 }
 

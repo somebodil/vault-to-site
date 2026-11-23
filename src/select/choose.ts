@@ -128,7 +128,8 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
     byProperty: byProperty.sort(byPathOrder),
     byPattern: sorted(byPattern),
     unread: unread.sort(byPathOrder),
-    cut: cut.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
+    // The plain order, as for the notes: this runs at every tick in the dialog, and with tens of thousands of links the order of a language costs most of it
+    cut: cut.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0)),
     guarded: sorted(guarded),
   };
 }

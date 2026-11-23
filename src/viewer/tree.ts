@@ -10,7 +10,8 @@ export interface Folder {
   items: { id: string; name: string; tag: string }[];
 }
 
-const byName = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+/** One collator for all names: `localeCompare` with options makes a new one for every pair it compares */
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
 
 /** The folders of the site, made from the paths of what it holds. Folders come before files, as in Obsidian. */
 export function buildTree(index: SiteIndex): Folder {

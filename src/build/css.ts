@@ -153,8 +153,6 @@ export type CssPiece = string | CssImport;
 export interface CssChoice {
   /** True for a rule that is left out, by what stands before its block (its selector) and by the block */
   drops(selector: string, block: string): boolean;
-  /** The block of an `@font-face` rule as it is written to the site */
-  font?(block: string): string;
 }
 
 /** Rules whose block holds rules again */
@@ -193,8 +191,6 @@ export function rewriteCss(text: string, choice: CssChoice): CssPiece[] {
       if (inner.trim() !== "") {
         css += `${prelude}{\n${inner}}\n`;
       }
-    } else if (/^@font-face\b/i.test(prelude)) {
-      css += `${prelude}{${choice.font?.(block) ?? block}}\n`;
     } else if (prelude.startsWith("@") || !choice.drops(prelude, block)) {
       css += `${prelude}{${block}}\n`;
     }

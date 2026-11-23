@@ -1,4 +1,4 @@
-import type { NotePage, SiteGlobal, SiteIndex } from "../site-format.ts";
+import { readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, type Haystack } from "./find.ts";
 import { addFolding } from "./fold.ts";
@@ -300,9 +300,11 @@ function start(index: SiteIndex): void {
     tree.show(id);
     closeOnNarrow();
 
-    // As in the reading view of Obsidian: what stands above the note is one block that is not of the note, and the blocks of the note follow it
+    // As in the reading view of Obsidian: what stands above the note is one block that is not of the note,
+    // the blocks of the note follow it, and a block that is not of the note ends it. Rules of Obsidian go
+    // by these: the first block of a note has no space above it, and the last one keeps the space below it.
     const header = el("div", { cls: "mod-header mod-ui" });
-    const parts: Node[] = [header];
+    const parts: Node[] = [el("div", { cls: "markdown-preview-pusher" }), header];
     let headings: [number, string][] = [];
     if (index.inlineTitle) {
       header.appendChild(el("div", { cls: "inline-title", text: titleOf(path) }));
@@ -324,6 +326,7 @@ function start(index: SiteIndex): void {
       parts.push(...noteBlocks(page.html));
       headings = page.h;
     }
+    parts.push(el("div", { cls: "mod-footer mod-ui" }));
     sizer.replaceChildren(...parts);
     current = id;
     dressLists(sizer, triangle, canFold("lists"));
@@ -454,7 +457,7 @@ function start(index: SiteIndex): void {
   // A note is asked for when the pointer comes to a link to it, so that it is there at the click
   const ahead = (event: Event): void => {
     const href = event.target instanceof Element ? event.target.closest("a[href^='#/']")?.getAttribute("href") : null;
-    const id = href?.split("/")[1];
+    const id = href === null || href === undefined ? undefined : readNoteAddress(href).id;
     if (id !== undefined && index.notes[id] !== undefined) {
       void loadNote(id);
     }
@@ -511,11 +514,11 @@ function start(index: SiteIndex): void {
     if (window.location.hash.length > 1 && !window.location.hash.startsWith("#/") && current !== "") {
       return;
     }
-    const [, id = "", heading = ""] = window.location.hash.split("/");
-    const wanted = id !== "" ? safeDecode(id) : (firstNote(root, index) ?? "");
+    const { id, heading } = readNoteAddress(window.location.hash);
+    const wanted = id !== "" ? id : (firstNote(root, index) ?? "");
     const find = pendingFind;
     pendingFind = "";
-    void show(wanted, safeDecode(heading), find);
+    void show(wanted, heading, find);
   };
   window.addEventListener("hashchange", route);
   route();
@@ -532,13 +535,5 @@ function readList(saved: string | null): string[] {
     return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
-  }
-}
-
-function safeDecode(text: string): string {
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text;
   }
 }

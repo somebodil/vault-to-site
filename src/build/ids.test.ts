@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { assignIds, extensionOf, hashOf, titleOf } from "./ids.ts";
+import { assignIds, extensionOf, hashOf } from "./ids.ts";
 
 describe("hashOf", () => {
   it("gives the same name for the same path, made of letters and digits only", () => {
@@ -26,13 +26,5 @@ describe("extensionOf", () => {
     assert.equal(extensionOf("a.b/c"), "");
     assert.equal(extensionOf(".hidden"), "");
     assert.equal(extensionOf("x.tar.gz"), "gz");
-  });
-});
-
-describe("titleOf", () => {
-  it("is the name without the folder and without .md", () => {
-    assert.equal(titleOf("Guide/Setup.md"), "Setup");
-    assert.equal(titleOf("한글 노트.md"), "한글 노트");
-    assert.equal(titleOf("Attachments/pic.png"), "pic.png");
   });
 });

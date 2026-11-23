@@ -14,6 +14,8 @@ export interface RenderContext {
   resourceToPath: (url: string) => string | null;
   /** An element of the page of Obsidian, out of sight, to draw in */
   stage: HTMLElement;
+  /** The addresses in `assets`, as a set: an address of the site is one of these */
+  made: ReadonlySet<string>;
   /** The classes of the reading view by the settings of Obsidian: see `viewClasses` */
   viewClass: string;
 }
@@ -266,7 +268,7 @@ const URL_IN_STYLE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi;
  * files.
  */
 function dropOtherAddresses(host: HTMLElement, context: RenderContext): void {
-  const made = new Set(context.assets.values());
+  const { made } = context;
   const isGood = (address: string): boolean => {
     const plain = address.trim();
     return plain.startsWith("#") || made.has(plain.split("#")[0] ?? "") || OUTER_ADDRESS.test(plain);

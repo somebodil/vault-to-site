@@ -62,10 +62,6 @@ describe("rewriteCss", () => {
     assert.equal(text(css, { drops: () => true }), css);
   });
 
-  it("lets the choice write the block of a font", () => {
-    assert.equal(text("@font-face{font-family:x}", { drops: () => false, font: (block) => block + ";font-weight:100 900" }), "@font-face{font-family:x;font-weight:100 900}\n");
-  });
-
   it("sets apart the sheets that are taken in, where they stood, and drops the line about how the file is stored", () => {
     assert.deepEqual(rewriteCss(`@charset "utf-8"; @import url("https://fonts.example/a.css") screen; a{b:c} @import 'local.css'; @import url(bare.css) layer(x);`, keepAll), [
       { address: "https://fonts.example/a.css", rest: "screen" },

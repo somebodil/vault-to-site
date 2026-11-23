@@ -3,8 +3,8 @@ import { choose, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
 import { invalidPropertyLines, parsePropertyRules } from "../select/properties.ts";
 import { isAtOrUnder } from "../select/ticks.ts";
-import type { Settings } from "../settings.ts";
-import { OLD, PART, zipPath } from "./output.ts";
+import { placeOf, type Settings } from "../settings.ts";
+import { OLD, PART } from "./output.ts";
 
 /** Files that Obsidian draws from what is in them. See `VaultFile.undrawn`. */
 const UNDRAWN = new Set(["canvas", "base"]);
@@ -13,8 +13,7 @@ const UNDRAWN = new Set(["canvas", "base"]);
 export function readVault(app: App, settings: Settings): VaultFile[] {
   // Where the next build writes, and where builds have written. Not the place of the other format: a name
   // typed there and never built to may be a folder of notes.
-  const place = settings.format === "zip" ? zipPath(normalizePath(settings.zip)) : normalizePath(settings.folder);
-  const own = [place, ...settings.written.map((path) => normalizePath(path))];
+  const own = [placeOf(settings, normalizePath), ...settings.written.map((path) => normalizePath(path))];
   // An archive has another name while it is written, and one that broke off may still lie there
   const isOwn = (path: string): boolean => path.endsWith(PART) || path.endsWith(OLD) || own.some((mine) => isAtOrUnder(path, mine));
   const resolved = app.metadataCache.resolvedLinks;
