@@ -108,8 +108,10 @@ body.v2s {
   height: 100%;
 }
 
+/* What a note pins to the window with a style of its own stays inside the note, and does not cover the rest */
 .v2s-main .markdown-preview-view {
   overflow-y: auto;
+  contain: layout paint;
 }
 
 .v2s-button {

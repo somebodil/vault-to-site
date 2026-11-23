@@ -207,10 +207,7 @@ function start(loaded: SiteIndex): void {
       if (page.props.length > 0) {
         parts.push(propertiesView(page.props));
       }
-      const content = el("div", { cls: "v2s-note" });
-      // What Obsidian drew for the note. Obsidian has cleaned it of scripts.
-      content.innerHTML = page.html;
-      parts.push(...Array.from(content.childNodes));
+      parts.push(...noteNodes(page.html));
     }
     sizer.replaceChildren(...parts);
     current = id;
@@ -471,6 +468,23 @@ function start(loaded: SiteIndex): void {
   };
   window.addEventListener("hashchange", route);
   route();
+}
+
+/**
+ * Reads a note back as it was written: as XML, so that a block inside a
+ * paragraph stays there. Should a browser refuse the XML, the note is read as
+ * HTML, which shows the same words with some of the nesting lost.
+ */
+function noteNodes(xml: string): Node[] {
+  const parsed = new DOMParser().parseFromString(`<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`, "application/xhtml+xml");
+  const root = parsed.documentElement;
+  if (root.localName === "div" && parsed.getElementsByTagName("parsererror").length === 0) {
+    return Array.from(document.importNode(root, true).childNodes);
+  }
+  const content = el("div");
+  // What Obsidian drew for the note. The build has cleaned it of scripts.
+  content.innerHTML = xml;
+  return Array.from(content.childNodes);
 }
 
 function safeDecode(text: string): string {

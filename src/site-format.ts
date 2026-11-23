@@ -47,6 +47,7 @@ export interface SiteIndex {
 
 /** One note, as Obsidian drew it */
 export interface NotePage {
+  /** The note as XML (XHTML): it is read back exactly as Obsidian made it, which HTML is not */
   html: string;
   /** The properties, in the order of the note */
   props: [key: string, value: PropertyValue][];

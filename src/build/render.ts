@@ -16,7 +16,7 @@ export interface RenderContext {
 
 /** A note as the site holds it */
 export interface Rendered {
-  /** What Obsidian drew, made fit for the site */
+  /** What Obsidian drew, made fit for the site, as XML: see `serialize` */
   html: string;
   /** The words of it, a line for each paragraph, row or item: what the search of the site looks through */
   text: string;
@@ -43,7 +43,7 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
     await MarkdownRenderer.render(context.app, text, host, file.path, component);
     await settled(host);
     tidy(host, file, context);
-    return { html: host.innerHTML, text: visibleText(host) };
+    return { html: serialize(host), text: visibleText(host) };
   } finally {
     component.unload();
     host.remove();
@@ -89,7 +89,47 @@ function settled(host: HTMLElement): Promise<void> {
   });
 }
 
+/** Characters that XML does not allow. A note can hold them; the site leaves them out. */
+// eslint-disable-next-line no-control-regex -- the control characters are what is looked for
+const NOT_IN_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
+/**
+ * Writes what was drawn as XML, not as HTML.
+ *
+ * Obsidian puts blocks where HTML has no place for them: an embedded note is
+ * a block inside a paragraph. Made with script that is fine, but written as
+ * HTML and read again by a browser, the paragraph ends where the block
+ * starts, and the embed is empty with its text after it. XML is read back
+ * exactly as it was written.
+ */
+function serialize(host: HTMLElement): string {
+  const serializer = new XMLSerializer();
+  let xml = "";
+  host.childNodes.forEach((node) => {
+    xml += serializer.serializeToString(node);
+  });
+  return xml.replace(NOT_IN_XML, "");
+}
+
+/**
+ * Takes out what could run script or reach outside the page. Obsidian cleans
+ * what it draws already; this is for what a plugin may add after that.
+ */
+function disarm(host: HTMLElement): void {
+  host.querySelectorAll("script, base, meta, link, object, embed, applet").forEach((el) => el.remove());
+  host.querySelectorAll("*").forEach((el) => {
+    for (const attribute of Array.from(el.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const isAddress = name === "href" || name === "src" || name === "xlink:href" || name === "action" || name === "formaction";
+      if (name.startsWith("on") || name === "srcdoc" || (isAddress && /^\s*(javascript|vbscript):/i.test(attribute.value))) {
+        el.removeAttribute(attribute.name);
+      }
+    }
+  });
+}
+
 function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
+  disarm(host);
   // The properties are drawn by the site from the list of them
   host.querySelectorAll(".frontmatter, .frontmatter-container, .metadata-container").forEach((el) => el.remove());
   tidyEmbeds(host, file, context);
@@ -164,7 +204,7 @@ function tidyLinks(host: HTMLElement, file: TFile, context: RenderContext): void
       link.setAttribute("target", "_blank");
     } else {
       // The words of the link are part of the note and stay. Where it led does not.
-      for (const name of ["href", "aria-label", "title"]) {
+      for (const name of ["href", "aria-label", "title", "data-tooltip-position"]) {
         link.removeAttribute(name);
       }
       link.classList.add("is-unresolved");
