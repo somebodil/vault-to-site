@@ -107,6 +107,12 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **A site is written inside the vault,** because that is where a plugin may write on a phone.
 - **In a link to a note outside the site, the words stay.** A link written without other words shows the name of its note.
 
+## What was tried, and what was not
+
+- **Building** ran in Obsidian 1.15.1 on an emulated Android phone: a vault of difficult cases (private notes, embeds inside embeds, properties with a mistake, a canvas, notes with scripts and odd names), 168 real notes with 70 pictures in 6 seconds, 3000 generated notes in about half a minute, and a site of 51 MB, whose archive is written in pieces.
+- **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
+- **Not tried:** building in Obsidian on a computer, on an iPhone or an iPad, and opening the site in the browser of a real phone.
+
 ## Development
 
 You need [Node.js](https://nodejs.org) 24 or later.
