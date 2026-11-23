@@ -188,6 +188,16 @@ export class BuildModal extends Modal {
       treeEl.scrollTop = scroll;
     };
 
+    /** After typing: the vault is worked through once the keys have stopped, not at each of them */
+    let typing = 0;
+    const afterTyping = (): void => {
+      window.clearTimeout(typing);
+      typing = window.setTimeout(() => {
+        plan();
+        drawTree();
+      }, 150);
+    };
+
     /** Reads the files of the vault again: what a build writes is not among them, so they change with where it writes */
     const readFiles = (): void => {
       files = readVault(this.app, this.settings);
@@ -210,8 +220,7 @@ export class BuildModal extends Modal {
             settings.exclude = value;
           });
           mark();
-          plan();
-          drawTree();
+          afterTyping();
         });
       });
 
@@ -225,8 +234,7 @@ export class BuildModal extends Modal {
           this.change((settings) => {
             settings.properties = value;
           });
-          plan();
-          drawTree();
+          afterTyping();
         });
       });
 
@@ -276,7 +284,10 @@ export class BuildModal extends Modal {
       button
         .setButtonText("Look over")
         .setCta()
-        .onClick(() => this.showReview());
+        .onClick(() => {
+          window.clearTimeout(typing);
+          this.showReview();
+        });
     });
 
     readFiles();

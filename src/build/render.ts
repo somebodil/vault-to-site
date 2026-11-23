@@ -178,11 +178,14 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
 
 /**
  * An address that leads into the running Obsidian or to a file of the
- * device, anywhere in the value of an attribute: at its start, or further in
- * as in a style or a list of pictures. `obsidian://` is one of them: it opens
- * a note by the name of the vault and the path of the note.
+ * device. `obsidian://` is one of them: it opens a note by the name of the
+ * vault and the path of the note.
  */
-const INNER_ADDRESS = /(^|[\s"'(,=])(app|capacitor|file|obsidian):\/\/|\/_capacitor_file_\//i;
+const INNER_AT_START = /^\s*(app|capacitor|file|obsidian):/i;
+/** The same further inside a value, as in a style or in a list of pictures of several sizes */
+const INNER_INSIDE = /(^|[\s"'(,])(app|capacitor|file|obsidian):\/\/|\/_capacitor_file_\//i;
+/** Attributes whose whole value is one address. An address of the web may hold another address as a part of it, and is left alone. */
+const ONE_ADDRESS = new Set(["href", "src", "poster", "data", "action", "formaction", "cite", "xlink:href"]);
 
 /**
  * Takes out every address that only works inside Obsidian. The pictures and
@@ -192,7 +195,8 @@ const INNER_ADDRESS = /(^|[\s"'(,=])(app|capacitor|file|obsidian):\/\/|\/_capaci
 function dropInnerAddresses(host: HTMLElement): void {
   host.querySelectorAll("*").forEach((el) => {
     for (const attribute of Array.from(el.attributes)) {
-      if (INNER_ADDRESS.test(attribute.value)) {
+      const isOne = ONE_ADDRESS.has(attribute.name.toLowerCase());
+      if (isOne ? INNER_AT_START.test(attribute.value) || attribute.value.includes("/_capacitor_file_/") : INNER_INSIDE.test(attribute.value)) {
         el.removeAttribute(attribute.name);
       }
     }
