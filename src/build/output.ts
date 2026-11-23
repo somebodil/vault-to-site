@@ -3,6 +3,9 @@ import { type DataAdapter, normalizePath } from "obsidian";
 /** A file in the folder of a site that says the plugin made the folder */
 export const MARKER = "vault-to-site.json";
 
+/** How often a file is written before the build gives up */
+const WRITE_ATTEMPTS = 3;
+
 /**
  * The folder a site is written to.
  *
@@ -12,6 +15,8 @@ export const MARKER = "vault-to-site.json";
  * refused.
  */
 export class Output {
+  /** How many files had to be written a second time */
+  rewritten = 0;
   private readonly made = new Set<string>();
   private readonly adapter: DataAdapter;
   readonly root: string;
@@ -39,16 +44,44 @@ export class Output {
   }
 
   async text(path: string, content: string): Promise<void> {
-    await this.adapter.write(await this.place(path), content);
+    await this.binary(path, new TextEncoder().encode(content).buffer);
   }
 
   async binary(path: string, content: ArrayBuffer): Promise<void> {
-    await this.adapter.writeBinary(await this.place(path), content);
+    const full = await this.place(path);
+    await this.checked(full, content.byteLength, () => this.adapter.writeBinary(full, content));
   }
 
   /** Copies a file of the vault into the site */
   async copy(from: string, path: string): Promise<void> {
-    await this.adapter.copy(from, await this.place(path));
+    const full = await this.place(path);
+    const size = (await this.adapter.stat(from))?.size ?? -1;
+    await this.checked(full, size, async () => {
+      if (await this.adapter.exists(full)) {
+        await this.adapter.remove(full);
+      }
+      await this.adapter.copy(from, full);
+    });
+  }
+
+  /**
+   * Writes, and looks whether the file has the size of what was written.
+   * Obsidian on Android has been seen to say that a file was written and to
+   * leave it empty, about once in a few hundred files. Such a file is written
+   * again.
+   */
+  private async checked(full: string, size: number, write: () => Promise<void>): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      await write();
+      const written = (await this.adapter.stat(full))?.size;
+      if (written === size) {
+        return;
+      }
+      if (attempt === WRITE_ATTEMPTS) {
+        throw new Error(`"${full}" could not be written: it has ${String(written ?? "no")} bytes of ${String(size)}.`);
+      }
+      this.rewritten++;
+    }
   }
 
   private async place(path: string): Promise<string> {

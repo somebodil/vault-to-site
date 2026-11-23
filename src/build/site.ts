@@ -26,6 +26,8 @@ export interface BuildResult {
   files: number;
   folder: string;
   millis: number;
+  /** Files that had to be written a second time */
+  rewritten: number;
 }
 
 /** Thrown when the build was stopped from outside */
@@ -168,7 +170,7 @@ export async function buildSite(
   await output.text("index.html", indexHtml(index.name));
   progress(total, total, "");
 
-  return { notes: choice.notes.length, files: choice.files.length, folder: output.root, millis: Date.now() - start };
+  return { notes: choice.notes.length, files: choice.files.length, folder: output.root, millis: Date.now() - start, rewritten: output.rewritten };
 }
 
 function indexHtml(name: string): string {

@@ -43,14 +43,19 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
 }
 
 /**
- * Waits until what was drawn stops changing. Embedded notes, diagrams and the
- * output of other plugins arrive after the first drawing.
+ * Waits until what was drawn stops changing. Embedded notes, formulas,
+ * diagrams and the output of other plugins arrive after the first drawing.
+ * What Obsidian marks as not ready yet is waited for by name; for the rest,
+ * a short time without a change is taken as the end.
  */
 function settled(host: HTMLElement): Promise<void> {
-  const QUIET = 250;
+  const QUIET = 120;
   const LONGEST = 6000;
-  const LONGEST_FOR_EMBEDS = 3000;
+  const LONGEST_FOR_KNOWN = 4000;
   const start = Date.now();
+  const isWaited = (): boolean =>
+    host.querySelector(".markdown-embed:not(.is-loaded), .math:not(.is-loaded)") !== null ||
+    Array.from(host.querySelectorAll(".mermaid")).some((diagram) => diagram.querySelector("svg") === null);
   return new Promise((resolve) => {
     let timer = 0;
     const finish = (): void => {
@@ -60,8 +65,7 @@ function settled(host: HTMLElement): Promise<void> {
       resolve();
     };
     const quiet = (): void => {
-      const waitsForEmbed = host.querySelector(".markdown-embed:not(.is-loaded)") !== null;
-      if (waitsForEmbed && Date.now() - start < LONGEST_FOR_EMBEDS) {
+      if (isWaited() && Date.now() - start < LONGEST_FOR_KNOWN) {
         timer = window.setTimeout(quiet, QUIET);
         return;
       }
