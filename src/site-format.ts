@@ -10,12 +10,10 @@
 /** A value of a property of a note */
 export type PropertyValue = string | number | boolean | null | PropertyValue[] | { [key: string]: PropertyValue };
 
-/** A note in the list: enough for the tree, the outline and the links, without its text */
+/** A note in the list: enough for the tree and the links, without its text */
 export interface NoteEntry {
   /** Path in the vault */
   p: string;
-  /** Headings: level and text */
-  h: [level: number, text: string][];
   /** Ids of the notes of the site it links to or embeds */
   l: string[];
 }
@@ -51,6 +49,8 @@ export interface NotePage {
   html: string;
   /** The properties, in the order of the note */
   props: [key: string, value: PropertyValue][];
+  /** Headings, for the outline: level and text */
+  h: [level: number, text: string][];
 }
 
 /** A part of the text to search in: the id of a note and its text */

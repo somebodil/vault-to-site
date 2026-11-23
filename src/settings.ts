@@ -17,6 +17,12 @@ export interface Settings {
   zip: string;
   /** The folder a site is written to, from the root of the vault */
   folder: string;
+  /**
+   * Every archive and folder a build has written. They are never content of
+   * a site: an archive of an earlier build holds what was in the site then,
+   * also notes that are private now.
+   */
+  written: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   zip: "vault-to-site.zip",
   // Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of the vault
   folder: ".vault-to-site",
+  written: [],
 };
 
 /** Where a build with these settings writes, as it is written in the setting */
@@ -55,5 +62,6 @@ export function readSettings(saved: unknown): Settings {
     format: data.format === "folder" ? "folder" : "zip",
     zip: path("zip"),
     folder: path("folder"),
+    written: paths(data.written),
   };
 }

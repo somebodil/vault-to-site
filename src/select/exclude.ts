@@ -10,13 +10,16 @@ export interface ExcludeRules {
  * Splits an exclude input at commas into patterns.
  *
  * A comma belongs to the pattern, not to the list, when it is escaped (`\,`),
- * inside a character class (`[a,b]`) or inside a quantifier (`{1,3}`).
+ * inside a character class (`[a,b]`), inside a group (`(a,b)`) or inside a
+ * quantifier (`{1,3}`).
  * Whitespace around a pattern is dropped, and so are empty patterns.
  */
 export function splitPatterns(input: string): string[] {
   const patterns: string[] = [];
   let pattern = "";
   let inClass = false;
+  /** How many groups are open */
+  let depth = 0;
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
     if (char === "\\") {
@@ -25,7 +28,7 @@ export function splitPatterns(input: string): string[] {
       i++;
       continue;
     }
-    if (char === "," && !inClass && !isQuantifierComma(pattern, input, i)) {
+    if (char === "," && !inClass && depth === 0 && !isQuantifierComma(pattern, input, i)) {
       patterns.push(pattern);
       pattern = "";
       continue;
@@ -34,6 +37,10 @@ export function splitPatterns(input: string): string[] {
       inClass = true;
     } else if (char === "]") {
       inClass = false;
+    } else if (!inClass && char === "(") {
+      depth++;
+    } else if (!inClass && char === ")") {
+      depth = Math.max(0, depth - 1);
     }
     pattern += char;
   }
@@ -51,7 +58,8 @@ export function parseExcludeRules(input: string): ExcludeRules {
   const rules: ExcludeRules = { patterns: [], hasInvalid: false };
   for (const pattern of splitPatterns(input)) {
     try {
-      rules.patterns.push(new RegExp(pattern, "i"));
+      // The same letters can be written in two ways, as one sign or as its parts: both sides are compared in one form
+      rules.patterns.push(new RegExp(pattern.normalize("NFC"), "i"));
     } catch {
       rules.hasInvalid = true;
     }

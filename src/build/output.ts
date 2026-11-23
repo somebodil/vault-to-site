@@ -4,6 +4,10 @@ import { ZipWriter } from "./zip.ts";
 /** A file in a site that says the plugin made it */
 export const MARKER = "vault-to-site.json";
 
+/** What a build puts at the top of a site: only these are removed before a build */
+const SITE_FILES = [MARKER, "index.html", ".nojekyll"];
+const SITE_FOLDERS = ["app", "data", "assets"];
+
 /** How often a file is written before the build gives up */
 const WRITE_ATTEMPTS = 3;
 
@@ -20,6 +24,8 @@ export interface SiteOutput {
   copy(from: string, path: string): Promise<void>;
   /** Ends the writing. Says where the site is, from the root of the vault, and how large. */
   finish(): Promise<{ place: string; bytes: number }>;
+  /** Gives up: what was written so far is not left behind as if it were a site */
+  abort(): Promise<void>;
   /** How many writes had to be done a second time */
   rewritten: number;
 }
@@ -44,43 +50,77 @@ async function checked(adapter: DataAdapter, full: string, size: number, write: 
   }
 }
 
-/** Makes the folders above a path, the nearest to the root first */
-async function makeFolders(adapter: DataAdapter, folder: string, made: Set<string>): Promise<void> {
-  if (folder === "" || made.has(folder)) {
-    return;
+/**
+ * Makes folders, each once. Several notes are written at the same time, and
+ * all of them want the same folder first: they wait for the one that makes it.
+ */
+class Folders {
+  private readonly made = new Map<string, Promise<void>>();
+  private readonly adapter: DataAdapter;
+
+  constructor(adapter: DataAdapter) {
+    this.adapter = adapter;
   }
-  const above = folder.lastIndexOf("/");
-  if (above > 0) {
-    await makeFolders(adapter, folder.slice(0, above), made);
+
+  make(folder: string): Promise<void> {
+    if (folder === "") {
+      return Promise.resolve();
+    }
+    let making = this.made.get(folder);
+    if (making === undefined) {
+      making = this.create(folder);
+      this.made.set(folder, making);
+    }
+    return making;
   }
-  if (!(await adapter.exists(folder))) {
-    await adapter.mkdir(folder);
+
+  private async create(folder: string): Promise<void> {
+    const above = folder.lastIndexOf("/");
+    if (above > 0) {
+      await this.make(folder.slice(0, above));
+    }
+    if (await this.adapter.exists(folder)) {
+      return;
+    }
+    try {
+      await this.adapter.mkdir(folder);
+    } catch (error) {
+      // Made by something else in the meantime: that is as good
+      if (!(await this.adapter.exists(folder))) {
+        throw error;
+      }
+    }
   }
-  made.add(folder);
 }
 
 function isVaultItself(path: string): boolean {
   return path === "" || path === "/" || path === ".";
 }
 
+function folderOf(path: string): string {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+}
+
 /**
  * A site as a folder.
  *
- * A build starts by emptying the folder. So that a wrong setting never
- * empties a folder of notes, only a folder that holds the marker of an
- * earlier build is emptied. Any other folder that has something in it is
- * refused.
+ * A build takes away the site of the build before. So that a wrong setting
+ * never empties a folder of notes, a folder with something in it is only
+ * written to when it holds the marker of an earlier build, and even then
+ * only what a build writes is removed. A folder that is also something
+ * else, as a copy of a repository with its `.git`, keeps the rest.
  */
 export class FolderOutput implements SiteOutput {
   rewritten = 0;
   private bytes = 0;
-  private readonly made = new Set<string>();
+  private readonly folders: Folders;
   private readonly adapter: DataAdapter;
   private readonly root: string;
 
   constructor(adapter: DataAdapter, root: string) {
     this.adapter = adapter;
     this.root = root;
+    this.folders = new Folders(adapter);
   }
 
   async prepare(): Promise<void> {
@@ -97,11 +137,18 @@ export class FolderOutput implements SiteOutput {
       if (!isEmpty && !(await this.adapter.exists(this.root + "/" + MARKER))) {
         throw new Error(`The folder "${this.root}" has files that are not a site of this plugin. Choose an empty folder or a new name.`);
       }
-      if (!isEmpty) {
-        await this.adapter.rmdir(this.root, true);
+      for (const name of SITE_FOLDERS) {
+        if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
+          await this.adapter.rmdir(this.root + "/" + name, true);
+        }
+      }
+      for (const name of SITE_FILES) {
+        if (await this.adapter.exists(this.root + "/" + name)) {
+          await this.adapter.remove(this.root + "/" + name);
+        }
       }
     }
-    await makeFolders(this.adapter, this.root, this.made);
+    await this.folders.make(this.root);
   }
 
   async text(path: string, content: string): Promise<void> {
@@ -131,9 +178,17 @@ export class FolderOutput implements SiteOutput {
     return Promise.resolve({ place: this.root, bytes: this.bytes });
   }
 
+  /** What was written stays, with its marker: the next build takes it away. Without index.html it does not pass for a site. */
+  async abort(): Promise<void> {
+    const index = this.root + "/index.html";
+    if (await this.adapter.exists(index)) {
+      await this.adapter.remove(index);
+    }
+  }
+
   private async place(path: string): Promise<string> {
     const full = this.root + "/" + path;
-    await makeFolders(this.adapter, full.slice(0, full.lastIndexOf("/")), this.made);
+    await this.folders.make(folderOf(full));
     return full;
   }
 }
@@ -141,14 +196,21 @@ export class FolderOutput implements SiteOutput {
 /**
  * A site as one zip archive.
  *
- * A small archive is kept in memory and written at the end with one write,
- * which can be checked and done again. A large one is written in pieces as
- * it grows, so that it need not fit into the memory of a phone.
+ * The archive is written under another name and gets its own at the very
+ * end. So the archive of the build before is there until the new one is
+ * whole, and a build that is stopped or fails leaves no half archive that
+ * looks like a site.
+ *
+ * A small archive is kept in memory and written with one write, which can be
+ * checked and done again. A large one is written in pieces as it grows, so
+ * that it need not fit into the memory of a phone.
  */
 export class ZipOutput implements SiteOutput {
   rewritten = 0;
   private readonly adapter: DataAdapter;
   private readonly path: string;
+  /** Where the archive is written until it is whole */
+  private readonly part: string;
   private readonly zip: ZipWriter;
   private pieces: Uint8Array[] = [];
   /** Bytes in `pieces` */
@@ -157,12 +219,15 @@ export class ZipOutput implements SiteOutput {
   private onDisk = 0;
   /** Adding to an archive is one thing at a time: this is the end of the line */
   private last: Promise<void> = Promise.resolve();
+  /** Set when a write failed: the archive is not whole, and nothing more is added to it */
+  private broken: Error | null = null;
   /** An archive is written in pieces from this size on */
   private readonly pieceSize: number;
 
   constructor(adapter: DataAdapter, path: string, pieceSize = 32 * 1024 * 1024) {
     this.adapter = adapter;
     this.path = zipPath(path);
+    this.part = this.path + ".part";
     this.pieceSize = pieceSize;
     this.zip = new ZipWriter((piece) => this.take(piece));
   }
@@ -174,7 +239,8 @@ export class ZipOutput implements SiteOutput {
     if ((await this.adapter.stat(this.path))?.type === "folder") {
       throw new Error(`"${this.path}" is a folder. Choose another name for the archive.`);
     }
-    await makeFolders(this.adapter, this.path.includes("/") ? this.path.slice(0, this.path.lastIndexOf("/")) : "", new Set());
+    await new Folders(this.adapter).make(folderOf(this.path));
+    await this.removePart();
   }
 
   text(path: string, content: string): Promise<void> {
@@ -190,23 +256,58 @@ export class ZipOutput implements SiteOutput {
     return this.inTurn(async () => this.zip.add(path, new Uint8Array(await this.adapter.readBinary(from))));
   }
 
+  async finish(): Promise<{ place: string; bytes: number }> {
+    await this.inTurn(async () => {
+      await this.zip.finish();
+      await this.flush();
+      // Only now does the archive of the build before give way
+      if (await this.adapter.exists(this.path)) {
+        await this.adapter.remove(this.path);
+      }
+      await this.adapter.rename(this.part, this.path);
+      const size = (await this.adapter.stat(this.path))?.size;
+      if (size !== this.onDisk) {
+        throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
+      }
+    });
+    return { place: this.path, bytes: this.onDisk };
+  }
+
+  async abort(): Promise<void> {
+    this.broken ??= new Error("The build was given up.");
+    await this.last;
+    await this.removePart();
+  }
+
+  private async removePart(): Promise<void> {
+    if (await this.adapter.exists(this.part)) {
+      await this.adapter.remove(this.part);
+    }
+  }
+
   /** What is in memory already is made smaller right away, next to the others, and waits in line only to be written */
   private async add(path: string, data: Uint8Array): Promise<void> {
     const packed = await this.zip.pack(path, data);
     await this.inTurn(() => this.zip.put(packed));
   }
 
-  async finish(): Promise<{ place: string; bytes: number }> {
-    await this.inTurn(async () => {
-      await this.zip.finish();
-      await this.flush();
-    });
-    return { place: this.path, bytes: this.onDisk };
-  }
-
+  /**
+   * Does one thing after the other. After a failure nothing more is done:
+   * the place in the archive where the failed piece belongs is lost, and
+   * what came after it would make an archive that looks whole and is not.
+   */
   private inTurn(work: () => Promise<void>): Promise<void> {
-    const next = this.last.then(work);
-    // A failure reaches who asked, and does not keep what comes after from running
+    const next = this.last.then(async () => {
+      if (this.broken !== null) {
+        throw this.broken;
+      }
+      try {
+        await work();
+      } catch (error) {
+        this.broken = error instanceof Error ? error : new Error(String(error));
+        throw this.broken;
+      }
+    });
     this.last = next.catch(() => undefined);
     return next;
   }
@@ -230,15 +331,13 @@ export class ZipOutput implements SiteOutput {
     this.held = 0;
     if (this.onDisk === 0) {
       const write = async (): Promise<void> => {
-        if (await this.adapter.exists(this.path)) {
-          await this.adapter.remove(this.path);
-        }
-        await this.adapter.writeBinary(this.path, buffer.buffer);
+        await this.removePart();
+        await this.adapter.writeBinary(this.part, buffer.buffer);
       };
-      await checked(this.adapter, this.path, buffer.length, write, () => this.rewritten++);
+      await checked(this.adapter, this.part, buffer.length, write, () => this.rewritten++);
     } else if (buffer.length > 0) {
-      await this.adapter.appendBinary(this.path, buffer.buffer);
-      const size = (await this.adapter.stat(this.path))?.size;
+      await this.adapter.appendBinary(this.part, buffer.buffer);
+      const size = (await this.adapter.stat(this.part))?.size;
       if (size !== this.onDisk + buffer.length) {
         // What was added cannot be taken back, so the archive is not repaired here
         throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk + buffer.length)}. Build again.`);

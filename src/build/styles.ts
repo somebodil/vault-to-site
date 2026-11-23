@@ -33,7 +33,7 @@ export async function captureStyles(doc: Document): Promise<CapturedStyles> {
     const base = sheet.href ?? doc.baseURI;
     let text = "";
     for (const rule of Array.from(rules)) {
-      text += rule.cssText + "\n";
+      text += textOf(rule) + "\n";
     }
     parts.push(
       text.replace(URL_IN_CSS, (whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
@@ -70,6 +70,36 @@ export async function captureStyles(doc: Document): Promise<CapturedStyles> {
     }
   }
   return { css: parts.join("\n"), resources };
+}
+
+/** A selector that picks an element by a path of the vault, as plugins write them to hide or to mark a folder */
+const NAMES_A_PATH = /\[\s*data-(path|href|file|tooltip)/i;
+
+function namesPath(rule: CSSRule): boolean {
+  const selector = (rule as { selectorText?: unknown }).selectorText;
+  if (typeof selector === "string" && NAMES_A_PATH.test(selector)) {
+    return true;
+  }
+  const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
+  return inner !== undefined && Array.from(inner).some(namesPath);
+}
+
+/**
+ * The text of a rule, without the rules that name a path of the vault: such
+ * a rule would carry the name of a folder or a note into the site, also of
+ * one that is kept out. A rule that holds other rules, as one for a width of
+ * the window, is written again without those.
+ */
+function textOf(rule: CSSRule): string {
+  if (!namesPath(rule)) {
+    return rule.cssText;
+  }
+  const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
+  const open = rule.cssText.indexOf("{");
+  if (inner === undefined || inner.length === 0 || open === -1 || typeof (rule as { selectorText?: unknown }).selectorText === "string") {
+    return "";
+  }
+  return rule.cssText.slice(0, open + 1) + Array.from(inner).map(textOf).join(" ") + "}";
 }
 
 /** The full address of a file that Obsidian serves itself, or null for what is inline or on the web */

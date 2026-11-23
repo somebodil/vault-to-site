@@ -1,5 +1,6 @@
 import { type App, Component, MarkdownRenderer, parseLinktext, type TFile } from "obsidian";
 import { noteAddress } from "../site-format.ts";
+import { shownWords } from "./words.ts";
 
 /** What the drawing of a note needs to know of the site */
 export interface RenderContext {
@@ -18,6 +19,8 @@ export interface RenderContext {
 export interface Rendered {
   /** What Obsidian drew, made fit for the site, as XML: see `serialize` */
   html: string;
+  /** False when the time for a note ran out while a part of it had not arrived */
+  isWhole: boolean;
   /** The words of it, a line for each paragraph, row or item: what the search of the site looks through */
   text: string;
 }
@@ -40,14 +43,27 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
   const component = new Component();
   component.load();
   try {
-    await MarkdownRenderer.render(context.app, text, host, file.path, component);
-    await settled(host);
+    await inTime(MarkdownRenderer.render(context.app, text, host, file.path, component));
+    const isWhole = await settled(host);
     tidy(host, file, context);
-    return { html: serialize(host), text: visibleText(host) };
+    return { html: serialize(host), isWhole, text: visibleText(host) };
   } finally {
     component.unload();
     host.remove();
   }
+}
+
+/** The longest Obsidian is given to draw one note. Another plugin that never answers would hold the build for good. */
+const LONGEST_DRAW = 60_000;
+
+function inTime(drawing: Promise<void>): Promise<void> {
+  let timer = 0;
+  const late = new Promise<never>((_resolve, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new Error("Obsidian did not finish drawing it."));
+    }, LONGEST_DRAW);
+  });
+  return Promise.race([drawing, late]).finally(() => window.clearTimeout(timer));
 }
 
 /**
@@ -55,8 +71,10 @@ export async function renderNote(file: TFile, text: string, context: RenderConte
  * diagrams and the output of other plugins arrive after the first drawing.
  * What Obsidian marks as not ready yet is waited for by name; for the rest,
  * a short time without a change is taken as the end.
+ *
+ * @returns false when the time ran out while something that was waited for by name had not arrived
  */
-function settled(host: HTMLElement): Promise<void> {
+function settled(host: HTMLElement): Promise<boolean> {
   // Formulas, code and embeds say when they are ready, and are waited for by name below. What says nothing
   // is the block of a plugin, such as a query: a note with one is given more time without a change.
   const QUIET = host.querySelector(".internal-embed, .mermaid, iframe, [class*='block-language-'], [class*='dataview']") === null ? 30 : 120;
@@ -74,7 +92,7 @@ function settled(host: HTMLElement): Promise<void> {
       observer.disconnect();
       window.clearTimeout(timer);
       window.clearTimeout(last);
-      resolve();
+      resolve(!isWaited());
     };
     const quiet = (): void => {
       if (isWaited() && Date.now() - start < LONGEST_FOR_KNOWN) {
@@ -148,12 +166,23 @@ function tidy(host: HTMLElement, file: TFile, context: RenderContext): void {
     link.setAttribute("rel", "noopener");
   });
   host.querySelectorAll("input[type=checkbox]").forEach((box) => box.setAttribute("disabled", ""));
+  // A heading carries its text as it was written, with the target of a link in it
+  host.querySelectorAll("[data-heading]").forEach((heading) => {
+    heading.setAttribute("data-heading", shownWords(heading.getAttribute("data-heading") ?? ""));
+  });
+  // The block of the search of Obsidian lists lines of other notes, whatever they are
+  host.querySelectorAll(".block-language-query, .internal-query").forEach(emptyOut);
   dropInnerAddresses(host);
   host.querySelectorAll(`[${SOURCE}]`).forEach((el) => el.removeAttribute(SOURCE));
 }
 
-/** An address that leads into the running Obsidian, or to a file of the device */
-const INNER_ADDRESS = /^\s*(app|capacitor|file):\/\/|\/_capacitor_file_\//i;
+/**
+ * An address that leads into the running Obsidian or to a file of the
+ * device, anywhere in the value of an attribute: at its start, or further in
+ * as in a style or a list of pictures. `obsidian://` is one of them: it opens
+ * a note by the name of the vault and the path of the note.
+ */
+const INNER_ADDRESS = /(^|[\s"'(,=])(app|capacitor|file|obsidian):\/\/|\/_capacitor_file_\//i;
 
 /**
  * Takes out every address that only works inside Obsidian. The pictures and
@@ -206,6 +235,14 @@ function tidyEmbeds(host: HTMLElement, file: TFile, context: RenderContext): voi
     } else if (embed.classList.contains("pdf-embed")) {
       // Obsidian shows a PDF with a viewer of its own. A browser has one too.
       embed.replaceChildren(createEl("iframe", { cls: "v2s-pdf", attr: { src: asset, title: target.slice(target.lastIndexOf("/") + 1) } }));
+    } else if (!embed.classList.contains("media-embed")) {
+      // A canvas, a base or another file that Obsidian draws with content of its own: cards and rows
+      // of other notes, whatever they are. The file is part of the site, so there is a link to it.
+      const name = target.slice(target.lastIndexOf("/") + 1);
+      embed.replaceChildren(createEl("a", { cls: "internal-link", text: name, attr: { href: asset, target: "_blank" } }));
+      for (const attribute of ["src", "alt"]) {
+        embed.removeAttribute(attribute);
+      }
     }
   }
 }

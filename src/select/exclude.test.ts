@@ -49,3 +49,17 @@ describe("parseExcludeRules", () => {
     );
   });
 });
+
+describe("patterns with groups, and names written in two ways", () => {
+  it("does not split at a comma inside a group", () => {
+    assert.deepEqual(splitPatterns("^(Private,Secret)/, \\.pdf$"), ["^(Private,Secret)/", "\\.pdf$"]);
+    assert.deepEqual(splitPatterns("^(a|(b,c))d, e"), ["^(a|(b,c))d", "e"]);
+    assert.deepEqual(splitPatterns("[(],x"), ["[(]", "x"]);
+  });
+
+  it("matches a name whose letters are stored as their parts", () => {
+    const rules = parseExcludeRules("^비공개/".normalize("NFD"));
+    assert.equal(rules.patterns[0]?.test("비공개/a.md".normalize("NFC")), true);
+  });
+});
+

@@ -199,7 +199,7 @@ function start(index: SiteIndex): void {
       sizer.replaceChildren(el("div", { cls: "v2s-empty", text: "This note is not part of the site." }));
       title.textContent = "";
       titleParent.textContent = "";
-      outline.replaceChildren();
+      drawOutline([]);
       backlinks.replaceChildren();
       return;
     }
@@ -211,6 +211,7 @@ function start(index: SiteIndex): void {
     closeOnNarrow();
 
     const parts: Node[] = [];
+    let headings: [number, string][] = [];
     if (index.inlineTitle) {
       parts.push(el("div", { cls: "inline-title", text: titleOf(path) }));
     }
@@ -229,10 +230,11 @@ function start(index: SiteIndex): void {
         parts.push(propertiesView(page.props));
       }
       parts.push(...noteNodes(page.html));
+      headings = page.h;
     }
     sizer.replaceChildren(...parts);
     current = id;
-    drawOutline(id);
+    drawOutline(headings);
     drawBacklinks(id);
 
     const target = heading !== "" ? headingEl(heading) : find !== "" ? textEl(find) : null;
@@ -243,7 +245,7 @@ function start(index: SiteIndex): void {
     } else {
       // A note that is come back to with the buttons of the browser is where it was left
       const state: unknown = window.history.state;
-      scroller.scrollTop = heading === "" && find === "" && isPlace(state) ? state.scroll : 0;
+      scroller.scrollTop = isPlace(state) && state.id === id ? state.scroll : 0;
     }
   };
 
@@ -266,8 +268,7 @@ function start(index: SiteIndex): void {
     return null;
   };
 
-  const drawOutline = (id: string): void => {
-    const headings = index.notes[id]?.h ?? [];
+  const drawOutline = (headings: [number, string][]): void => {
     if (headings.length === 0) {
       outline.replaceChildren(el("div", { cls: "pane-empty", text: "No headings found." }));
       return;
@@ -279,7 +280,11 @@ function start(index: SiteIndex): void {
           el("div", { cls: "tree-item-inner", text }),
         ]);
         row.addEventListener("click", () => {
-          (ownHeadings()[at] ?? headingEl(text))?.scrollIntoView({ block: "start" });
+          // The heading with this text, and of several with the same text the one that has as many of them before it.
+          // A heading on the page that the list does not know, as one inside a callout, does not shift the others.
+          const before = headings.slice(0, at).filter(([, other]) => other === text).length;
+          const same = ownHeadings().filter((h) => (h.getAttribute("data-heading") ?? h.textContent.trim()) === text);
+          (same[before] ?? same[0] ?? ownHeadings()[at])?.scrollIntoView({ block: "start" });
           closeOnNarrow();
         });
         return el("div", { cls: "tree-item" }, [row]);
@@ -368,7 +373,7 @@ function start(index: SiteIndex): void {
       noting = window.setTimeout(() => {
         if (current !== "") {
           try {
-            window.history.replaceState({ scroll: scroller.scrollTop }, "");
+            window.history.replaceState({ id: current, scroll: scroller.scrollTop }, "");
           } catch {
             // Some browsers do not keep it for a page opened from a file
           }
@@ -393,6 +398,8 @@ function start(index: SiteIndex): void {
 
   // ---- The address ----
   const route = (): void => {
+    // What was not noted of the note before is not noted for this one
+    window.clearTimeout(noting);
     const [, id = "", heading = ""] = window.location.hash.split("/");
     const wanted = id !== "" ? safeDecode(id) : (firstNote(root, index) ?? "");
     const find = pendingFind;
@@ -403,8 +410,9 @@ function start(index: SiteIndex): void {
   route();
 }
 
-function isPlace(state: unknown): state is { scroll: number } {
-  return typeof state === "object" && state !== null && typeof (state as { scroll?: unknown }).scroll === "number";
+function isPlace(state: unknown): state is { id: string; scroll: number } {
+  const place = state as { id?: unknown; scroll?: unknown } | null;
+  return typeof place === "object" && place !== null && typeof place.id === "string" && typeof place.scroll === "number";
 }
 
 function readList(saved: string | null): string[] {

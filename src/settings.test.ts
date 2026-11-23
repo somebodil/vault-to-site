@@ -16,7 +16,9 @@ describe("readSettings", () => {
       format: "folder",
       zip: "   ",
       folder: " out/site ",
+      written: ["old.zip", 5],
     });
+    assert.deepEqual(read.written, ["old.zip"]);
     assert.deepEqual(read.ticks, { on: ["Notes"], off: [] });
     assert.equal(read.exclude, "^Archive/");
     assert.equal(read.properties, DEFAULT_SETTINGS.properties);

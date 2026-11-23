@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { choose, type ChoiceRules, type VaultFile } from "./choose.ts";
+import { choose, signatureOf, type ChoiceRules, type VaultFile } from "./choose.ts";
 import { parseExcludeRules } from "./exclude.ts";
 import { DEFAULT_PROPERTY_RULES, parsePropertyRules } from "./properties.ts";
 
@@ -101,5 +101,63 @@ describe("choose", () => {
     const choice = choose(files, rules([""], ["Private", "Attachments"]));
     assert.deepEqual(choice.notes, ["Guide/Setup.md", "Home.md"]);
     assert.deepEqual(choice.pulledIn, ["Attachments/pic.png", "Attachments/scan.pdf"]);
+  });
+
+  it("keeps a note out whose properties are not known, and says why", () => {
+    const some: VaultFile[] = [
+      { path: "a.md", isNote: true },
+      { path: "broken.md", isNote: true, unread: "its properties cannot be read" },
+      { path: "pic.png", isNote: false },
+      { path: "c.md", isNote: true, uses: ["pic.png"], unread: "Obsidian has not read it yet" },
+    ];
+    const choice = choose(some, rules([""]));
+    assert.deepEqual(choice.notes, ["a.md"]);
+    assert.deepEqual(choice.unread, [
+      { path: "broken.md", why: "its properties cannot be read" },
+      { path: "c.md", why: "Obsidian has not read it yet" },
+    ]);
+    // The picture that only such a note uses stays out with it
+    assert.deepEqual(choice.files, []);
+    assert.deepEqual(choice.withNotes, ["pic.png"]);
+  });
+
+  it("keeps a canvas or a base out, ticked or used by a note", () => {
+    const some: VaultFile[] = [
+      { path: "a.md", isNote: true, uses: ["Board.canvas", "pic.png"] },
+      { path: "Board.canvas", isNote: false, undrawn: true },
+      { path: "Rows.base", isNote: false, undrawn: true },
+      { path: "pic.png", isNote: false },
+    ];
+    const choice = choose(some, rules([""]));
+    assert.deepEqual(choice.files, ["pic.png"]);
+    assert.deepEqual(choice.undrawn, ["Board.canvas", "Rows.base"]);
+    assert.deepEqual(choice.cut, [{ from: "a.md", to: "Board.canvas" }]);
+    assert.deepEqual(choose(some, rules(["a.md"])).undrawn, []);
+    assert.deepEqual(choose(some, rules(["a.md"])).files, ["pic.png"]);
+  });
+
+  it("names every note a rule is meant for, ticked or not", () => {
+    const choice = choose(files, rules(["Home.md"], [], "^Drafts/"));
+    assert.deepEqual(choice.guarded, ["Guide/Draft.md", "Private/Secrets.md"]);
+    assert.deepEqual(choose([...files, { path: "Drafts/x.md", isNote: true }], rules(["Home.md"], [], "^Drafts/")).guarded, [
+      "Drafts/x.md",
+      "Guide/Draft.md",
+      "Private/Secrets.md",
+    ]);
+  });
+
+  it("matches a path whose letters are stored as their parts", () => {
+    const stored = "비공개/메모.md".normalize("NFD");
+    const choice = choose([{ path: stored, isNote: true }], rules([""], [], "^비공개/"));
+    assert.deepEqual(choice.notes, []);
+    assert.deepEqual(choice.byPattern, [stored]);
+  });
+});
+
+describe("signatureOf", () => {
+  it("is the same for the same notes and files, and another for others", () => {
+    const one = choose(files, rules(["Home.md", "Guide"]));
+    assert.equal(signatureOf(one), signatureOf(choose(files, rules(["Guide", "Home.md"]))));
+    assert.notEqual(signatureOf(one), signatureOf(choose(files, rules(["Home.md"]))));
   });
 });

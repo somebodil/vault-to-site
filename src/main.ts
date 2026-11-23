@@ -1,4 +1,5 @@
 import { Plugin } from "obsidian";
+import { renameTicks } from "./select/ticks.ts";
 import { readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
@@ -19,6 +20,17 @@ export default class VaultToSitePlugin extends Plugin {
     };
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: open });
     this.addRibbonIcon(ICON, "Build a site", open);
+
+    // What is ticked is kept by path. A folder or note that gets another name keeps its tick, or its lack of one.
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        const ticks = renameTicks(this.config.ticks, oldPath, file.path);
+        if (JSON.stringify(ticks) !== JSON.stringify(this.config.ticks)) {
+          this.config.ticks = ticks;
+          void this.saveData(this.config);
+        }
+      }),
+    );
   }
 
   /** Called by Obsidian when data.json is changed by something else: a sync, a version control tool, an editor */

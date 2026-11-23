@@ -69,7 +69,8 @@ const ROW = 120;
 function cut(line: string, at: number, length: number): LineHit {
   // A line starts after its indent. A line too long for a row starts a little before the match.
   const indent = line.length - line.trimStart().length;
-  const from = line.length - indent > ROW ? Math.max(indent, Math.min(at - 30, line.length - ROW)) : indent;
+  // A row that starts with the sign for a cut has one letter less, so the end of the line is that much nearer
+  const from = line.length - indent > ROW ? Math.max(indent, Math.min(at - 30, line.length - (ROW - 1))) : indent;
   const isCut = from > indent;
   const shift = isCut ? 1 : 0;
   return {

@@ -25,9 +25,16 @@ class MemoryAdapter {
     return Promise.resolve(this.folders.has(path) ? { type: "folder", size: 0 } : null);
   }
 
-  mkdir(path: string): Promise<void> {
+  mkdirs = 0;
+
+  async mkdir(path: string): Promise<void> {
+    this.mkdirs++;
+    // As a device does: time passes, and a folder that is there already is refused
+    await Promise.resolve();
+    if (this.folders.has(path)) {
+      throw new Error("Folder already exists: " + path);
+    }
     this.folders.add(path);
-    return Promise.resolve();
   }
 
   list(path: string): Promise<{ files: string[]; folders: string[] }> {
@@ -67,6 +74,16 @@ class MemoryAdapter {
     after.set(before);
     after.set(new Uint8Array(data), before.length);
     this.files.set(path, after);
+    return Promise.resolve();
+  }
+
+  rename(from: string, to: string): Promise<void> {
+    const file = this.files.get(from);
+    if (file === undefined) {
+      return Promise.reject(new Error("no such file: " + from));
+    }
+    this.files.delete(from);
+    this.files.set(to, file);
     return Promise.resolve();
   }
 
@@ -136,13 +153,18 @@ describe("FolderOutput", () => {
     assert.deepEqual(await output.finish(), { place: "out/site", bytes: 15 + 6 });
   });
 
-  it("empties the folder of an earlier build, and no other folder", async () => {
+  it("takes away the site of an earlier build, and nothing else in its folder", async () => {
     const adapter = new MemoryAdapter();
-    adapter.folders.add("site");
+    for (const folder of ["site", "site/data", "site/data/n", "site/.git"]) {
+      adapter.folders.add(folder);
+    }
     adapter.files.set("site/" + MARKER, new Uint8Array(2));
-    adapter.files.set("site/old.js", new Uint8Array(3));
+    adapter.files.set("site/index.html", new Uint8Array(3));
+    adapter.files.set("site/data/n/old.js", new Uint8Array(3));
+    adapter.files.set("site/.git/config", new Uint8Array(4));
+    adapter.files.set("site/CNAME", new Uint8Array(5));
     await new FolderOutput(adapter.asAdapter, "site").prepare();
-    assert.equal(adapter.files.has("site/old.js"), false);
+    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/CNAME"]);
 
     adapter.folders.add("Notes");
     adapter.files.set("Notes/keep.md", new Uint8Array(3));
@@ -156,6 +178,15 @@ describe("FolderOutput", () => {
     await assert.rejects(new FolderOutput(adapter.asAdapter, "").prepare(), /folder of its own/);
     await assert.rejects(new FolderOutput(adapter.asAdapter, "/").prepare(), /folder of its own/);
     await assert.rejects(new FolderOutput(adapter.asAdapter, "note.md").prepare(), /is a file/);
+  });
+
+  it("makes a folder once when many files want it at the same time", async () => {
+    const adapter = new MemoryAdapter();
+    const output = new FolderOutput(adapter.asAdapter, "site");
+    await output.prepare();
+    await Promise.all(Array.from({ length: 32 }, (_, i) => output.text(`data/n/${String(i)}.js`, "x")));
+    assert.equal(adapter.files.size, 32);
+    assert.equal(adapter.mkdirs, 3, "site, site/data and site/data/n");
   });
 
   it("writes a file again that was left empty", async () => {
@@ -251,7 +282,7 @@ describe("ZipOutput", () => {
 
   it("writes the archive again when it was left empty", async () => {
     const adapter = new MemoryAdapter();
-    adapter.emptyOnce.add("site.zip");
+    adapter.emptyOnce.add("site.zip.part");
     const output = new ZipOutput(adapter.asAdapter, "site.zip");
     await output.prepare();
     await output.text("index.html", "content");
@@ -267,13 +298,39 @@ describe("ZipOutput", () => {
     await assert.rejects(new ZipOutput(adapter.asAdapter, "").prepare(), /needs a name/);
   });
 
-  it("passes on a failure and goes on with what comes after", async () => {
+  it("keeps the archive of the build before until the new one is whole", async () => {
+    const adapter = new MemoryAdapter();
+    const before = new TextEncoder().encode("the archive of before");
+    adapter.files.set("site.zip", before);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", 1000);
+    await output.prepare();
+    await output.text("data/n/a.js", "x".repeat(50));
+    await output.binary("assets/noise.png", new Uint8Array(5000).map((_, i) => (i * 7919) & 0xff).buffer);
+    assert.deepEqual(adapter.files.get("site.zip"), before, "still there while the new one is written");
+    assert.ok(adapter.files.has("site.zip.part"));
+    await output.abort();
+    assert.deepEqual(adapter.files.get("site.zip"), before, "and after the build was given up");
+    assert.equal(adapter.files.has("site.zip.part"), false);
+  });
+
+  it("adds nothing after a failure, and does not end as an archive", async () => {
     const adapter = new MemoryAdapter();
     const output = new ZipOutput(adapter.asAdapter, "site.zip");
     await output.prepare();
+    await output.text("index.html", "first");
     await assert.rejects(output.copy("missing.png", "assets/missing.png"), /no such file/);
-    await output.text("index.html", "still here");
-    await output.finish();
-    assert.deepEqual([...unzip(adapter.files.get("site.zip") ?? new Uint8Array(0))], [["index.html", "still here"]]);
+    await assert.rejects(output.text("data/n/a.js", "after the failure"), /no such file/);
+    await assert.rejects(output.finish(), /no such file/);
+    await output.abort();
+    assert.equal(adapter.files.has("site.zip"), false);
+    assert.equal(adapter.files.has("site.zip.part"), false);
+  });
+
+  it("takes away what a build that broke off left behind", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.files.set("site.zip.part", new Uint8Array(100));
+    const output = new ZipOutput(adapter.asAdapter, "site.zip");
+    await output.prepare();
+    assert.equal(adapter.files.has("site.zip.part"), false);
   });
 });

@@ -90,7 +90,8 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 
 - **A site is a picture of the vault at the time of the build.** What a plugin shows in a note, such as the result of a query, is as it was then. Every build draws every note again.
 - **An archive is at most 4 GB and 65,535 files.** A larger site is built as a folder.
-- **Canvases and bases are not drawn.** They are files of the site that can be opened, not pages.
+- **Canvases and bases stay out.** The site cannot draw them, and as plain files they would only carry the paths and the text they hold. An embed of one in a note is cut like a link to a note outside the site.
+- **The search block of Obsidian is emptied.** A block that starts with `query` lists lines of other notes, whatever they are.
 - **There is no graph view.**
 - **A link to a block leads to its note,** not to the block.
 - **A site is written inside the vault,** because that is where a plugin may write on a phone.

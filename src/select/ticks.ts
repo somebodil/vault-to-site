@@ -64,3 +64,25 @@ export function setTick(ticks: Ticks, path: string, value: boolean): Ticks {
   next.off.sort();
   return next;
 }
+
+/**
+ * Follows a folder or file that was given another name or place. Without
+ * this, a note that was left out of a ticked folder would be back in the
+ * site after it was renamed: its path would no longer be in the list.
+ */
+export function renameTicks(ticks: Ticks, from: string, to: string): Ticks {
+  const moved = (path: string): string => (path === from ? to : path.startsWith(from + "/") ? to + path.slice(from.length) : path);
+  const unique = (paths: string[]): string[] => [...new Set(paths.map(moved))].sort();
+  return { on: unique(ticks.on), off: unique(ticks.off) };
+}
+
+/**
+ * The decisions that point at nothing: paths that are in a list and not in
+ * the vault. A path that was left out and is gone was deleted, or it was
+ * renamed while the plugin could not see it, as by a sync: then what it was
+ * is back in the site.
+ */
+export function missingTicks(ticks: Ticks, exists: (path: string) => boolean): Ticks {
+  const gone = (path: string): boolean => path !== "" && !exists(path);
+  return { on: ticks.on.filter(gone), off: ticks.off.filter(gone) };
+}

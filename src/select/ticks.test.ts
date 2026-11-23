@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isAtOrUnder, NO_TICKS, parentOf, setTick, ticker, type Ticks } from "./ticks.ts";
+import { isAtOrUnder, missingTicks, NO_TICKS, parentOf, renameTicks, setTick, ticker, type Ticks } from "./ticks.ts";
 
 describe("parentOf", () => {
   it("is the folder a path is in, and the root for a top-level path", () => {
@@ -68,3 +68,32 @@ describe("setTick", () => {
     assert.deepEqual(setTick(ticks, "", false), NO_TICKS);
   });
 });
+
+describe("renameTicks", () => {
+  const ticks: Ticks = { on: ["Notes", "Notes/Private/keep.md"], off: ["Notes/Private", "Notes/diary.md"] };
+
+  it("keeps a renamed folder and a renamed note out of the site", () => {
+    let renamed = renameTicks(ticks, "Notes/Private", "Notes/Personal");
+    renamed = renameTicks(renamed, "Notes/diary.md", "Notes/journal.md");
+    assert.deepEqual(renamed, { on: ["Notes", "Notes/Personal/keep.md"], off: ["Notes/Personal", "Notes/journal.md"] });
+    const isTicked = ticker(renamed);
+    assert.equal(isTicked("Notes/Personal/secret.md"), false);
+    assert.equal(isTicked("Notes/journal.md"), false);
+    assert.equal(isTicked("Notes/Personal/keep.md"), true);
+  });
+
+  it("follows a folder above the listed paths, and leaves other paths alone", () => {
+    assert.deepEqual(renameTicks(ticks, "Notes", "Wiki"), { on: ["Wiki", "Wiki/Private/keep.md"], off: ["Wiki/Private", "Wiki/diary.md"] });
+    assert.deepEqual(renameTicks(ticks, "Notes2", "Other"), ticks);
+    assert.deepEqual(renameTicks(ticks, "Note", "Other"), ticks);
+  });
+});
+
+describe("missingTicks", () => {
+  it("names the listed paths that are not in the vault", () => {
+    const ticks: Ticks = { on: ["", "Gone"], off: ["Notes/Private", "Notes/old.md"] };
+    const exists = (path: string): boolean => path === "Notes/Private";
+    assert.deepEqual(missingTicks(ticks, exists), { on: ["Gone"], off: ["Notes/old.md"] });
+  });
+});
+

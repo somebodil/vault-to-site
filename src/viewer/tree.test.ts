@@ -6,7 +6,7 @@ import { buildTree, firstNote } from "./tree.ts";
 function index(notes: Record<string, string>, files: Record<string, string> = {}): SiteIndex {
   return {
     name: "Vault",
-    notes: Object.fromEntries(Object.entries(notes).map(([id, p]) => [id, { p, h: [], l: [] }])),
+    notes: Object.fromEntries(Object.entries(notes).map(([id, p]) => [id, { p, l: [] }])),
     files: Object.fromEntries(Object.entries(files).map(([id, p]) => [id, { p, a: "assets/" + id }])),
     searchParts: 0,
     theme: "light",

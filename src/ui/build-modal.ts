@@ -2,9 +2,9 @@ import { type App, Modal, normalizePath, Platform, Setting } from "obsidian";
 import { zipPath } from "../build/output.ts";
 import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
-import type { Choice, VaultFile } from "../select/choose.ts";
+import { signatureOf, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
-import { parentOf, setTick, ticker } from "../select/ticks.ts";
+import { missingTicks, parentOf, setTick, ticker } from "../select/ticks.ts";
 import type { Settings } from "../settings.ts";
 
 /** What the dialog needs of the plugin */
@@ -87,6 +87,8 @@ export class BuildModal extends Modal {
       const { choice, hasInvalidPattern } = planSite(this.app, this.settings, files);
       keptOut = new Map<string, string>([
         ...choice.withNotes.map((path): [string, string] => [path, "its notes are out"]),
+        ...choice.unread.map((x): [string, string] => [x.path, "not read"]),
+        ...choice.undrawn.map((path): [string, string] => [path, "cannot be drawn"]),
         ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
         ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
       ]);
@@ -96,9 +98,17 @@ export class BuildModal extends Modal {
         summary.createSpan({ cls: "vault-to-site-muted", text: ` ${String(keptOut.size)} kept out by a rule.` });
       }
       if (hasInvalidPattern) {
-        summary.createSpan({ cls: "vault-to-site-warning", text: " A pattern is not a valid regular expression and is not used." });
+        // A pattern that does not work keeps nothing out, and what it was written for would go in
+        summary.createDiv({ cls: "vault-to-site-warning", text: "A pattern is not a valid regular expression. Correct it or take it out: a site is not built with a rule that does not work." });
       }
-      review?.setDisabled(choice.notes.length + choice.files.length === 0);
+      const gone = missingTicks(this.settings.ticks, (path) => this.app.vault.getAbstractFileByPath(path) !== null).off;
+      if (gone.length > 0) {
+        summary.createDiv({
+          cls: "vault-to-site-warning",
+          text: `Left out before, and no longer in the vault: ${gone.join(", ")}. If one of them was renamed outside Obsidian, as by a sync, it is ticked again under its new name. Look at the tree.`,
+        });
+      }
+      review?.setDisabled(hasInvalidPattern || choice.notes.length + choice.files.length === 0);
     };
 
     const drawTree = (): void => {
@@ -281,7 +291,11 @@ export class BuildModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     this.setTitle("Look over the site");
-    const { choice } = planSite(this.app, this.settings);
+    const { choice, hasInvalidPattern } = planSite(this.app, this.settings);
+    if (hasInvalidPattern) {
+      this.showChoose();
+      return;
+    }
     const place =
       this.settings.format === "zip" ? `the archive "${zipPath(normalizePath(this.settings.zip))}"` : `the folder "${normalizePath(this.settings.folder)}"`;
 
@@ -320,6 +334,22 @@ export class BuildModal extends Modal {
     if (choice.byPattern.length > 0) {
       list("Kept out by a pattern", choice.byPattern, false);
     }
+    if (choice.unread.length > 0) {
+      list(
+        "Kept out because their properties are not known",
+        choice.unread.map((x) => `${x.path}  (${x.why})`),
+        true,
+        "A rule may be meant for these notes, and it cannot be checked. A note that Obsidian has not read yet is read a moment later: go back and look again. Properties that cannot be read have a mistake in them.",
+      );
+    }
+    if (choice.undrawn.length > 0) {
+      list(
+        "Kept out because the site cannot draw them",
+        choice.undrawn,
+        false,
+        "A canvas or a base is drawn by Obsidian from what is in it. As a plain file it would only carry the paths and the text it holds.",
+      );
+    }
     if (choice.withNotes.length > 0) {
       list(
         "Kept out with the notes that use them",
@@ -349,13 +379,14 @@ export class BuildModal extends Modal {
           .setButtonText("Build")
           .setCta()
           .setDisabled(choice.notes.length + choice.files.length === 0)
-          .onClick(() => void this.showBuild()),
+          .onClick(() => void this.showBuild(signatureOf(choice))),
       );
   }
 
   // ---- Step 3: the build ----
 
-  private async showBuild(): Promise<void> {
+  /** @param reviewed the sign of what was looked over: the build is that, or it is not done */
+  private async showBuild(reviewed: string): Promise<void> {
     if (this.building) {
       return;
     }
@@ -411,6 +442,7 @@ export class BuildModal extends Modal {
         this.app,
         this.settings,
         this.host.version,
+        reviewed,
         (finished, total, what) => {
           bar.max = total;
           bar.value = finished;
@@ -424,12 +456,21 @@ export class BuildModal extends Modal {
           ? `The site is the archive "${result.place}" in the vault. Unpack it and open index.html with a browser.`
           : `The site is the folder "${result.place}" in the vault. Open index.html in it with a browser.`,
       ];
+      // What a build wrote is never content of a later site, also after the name in the setting has changed
+      if (!this.settings.written.includes(result.place)) {
+        this.change((settings) => {
+          settings.written = [...settings.written, result.place];
+        });
+      }
+      if (result.unfinished.length > 0) {
+        lines.push(`${count(result.unfinished.length, "note")} had a part that did not arrive in time, and went in without it: ${result.unfinished.join(", ")}`);
+      }
       if (result.failed.length > 0) {
         lines.push(`${count(result.failed.length, "note")} could not be drawn, and the site says so in their place: ${result.failed.map((x) => x.path).join(", ")}`);
       }
       if (result.mentions.length > 0) {
         lines.push(
-          `${count(result.mentions.length, "note")} that a rule keeps out ${result.mentions.length === 1 ? "has its" : "have their"} name on a page of the site. A name gets there with the words of a link, with a sentence, or with what another plugin lists:`,
+          `${count(result.mentions.length, "note")} that a rule is meant for ${result.mentions.length === 1 ? "has its" : "have their"} name on a page of the site. A name gets there with the words of a link, with a sentence, or with what another plugin lists:`,
           ...result.mentions.map((x) => `${x.path}  in  ${x.shownIn.join(", ")}`),
         );
       }

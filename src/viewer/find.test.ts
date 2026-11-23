@@ -70,6 +70,14 @@ describe("findLines", () => {
     assert.equal(hit.text.slice(hit.start, hit.end), "needle");
   });
 
+  it("shows the whole match at the very end of a long line", () => {
+    const long = haystack("l", "x".repeat(200) + "NEEDLE");
+    const hit = findLines("needle", long, 1)[0];
+    assert.ok(hit !== undefined);
+    assert.equal(hit.text.slice(hit.start, hit.end), "NEEDLE");
+    assert.ok(hit.text.endsWith("NEEDLE"));
+  });
+
   it("finds nothing for nothing typed, and in an empty text", () => {
     assert.deepEqual(findLines("", hay, 5), []);
     assert.deepEqual(findLines("x", haystack("e", ""), 5), []);
