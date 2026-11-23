@@ -7,16 +7,20 @@ const ICON = "book-open-check";
 
 export default class VaultToSitePlugin extends Plugin {
   private readonly config: Settings = { ...DEFAULT_SETTINGS };
+  /** The dialog that is open, or was open last */
+  private dialog: BuildModal | null = null;
 
   override async onload(): Promise<void> {
     await this.readData();
 
     const open = (): void => {
-      new BuildModal(this.app, {
+      this.dialog?.close();
+      this.dialog = new BuildModal(this.app, {
         settings: this.config,
         version: this.manifest.version,
         save: () => this.saveData(this.config),
-      }).open();
+      });
+      this.dialog.open();
     };
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: open });
     this.addRibbonIcon(ICON, "Build a site", open);
@@ -31,6 +35,12 @@ export default class VaultToSitePlugin extends Plugin {
         }
       }),
     );
+  }
+
+  /** Closing the dialog stops a build that runs: nothing of the plugin goes on working after it is turned off */
+  override onunload(): void {
+    this.dialog?.close();
+    this.dialog = null;
   }
 
   /** Called by Obsidian when data.json is changed by something else: a sync, a version control tool, an editor */

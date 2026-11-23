@@ -264,7 +264,7 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
     await output.text("app/viewer.css", VIEWER_CSS);
     await output.text("app/viewer.js", VIEWER_JS);
     // The page itself comes last: a folder without it is not taken for a site
-    await output.text("index.html", indexHtml(index.name));
+    await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();
     progress(total, total, "Writing");
     const written = await output.finish();
@@ -287,10 +287,12 @@ async function build(app: App, settings: Settings, version: string, reviewed: st
   }
 }
 
-function indexHtml(name: string): string {
+/** @param language the language Obsidian is set to: the browser chooses fonts and breaks words by it, as Obsidian does */
+function indexHtml(name: string, language: string): string {
   const title = name.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const lang = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(language) ? language : "en";
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
