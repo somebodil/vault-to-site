@@ -138,7 +138,7 @@ async function build(
     await claim(place);
   }
 
-  const total = choice.notes.length + choice.files.length + 1;
+  const total = choice.notes.length + choice.files.length + choice.extra.length + 1;
   let done = 0;
   const check = (): void => {
     if (stop.now) {
@@ -241,7 +241,9 @@ async function build(
   };
 
   try {
-    await output.text(MARKER, JSON.stringify({ plugin: "vault-to-site", version }, null, 2) + "\n");
+    // The extra files are named in the marker: the next build takes away those it does not write again
+    const marker = { plugin: "vault-to-site", version, ...(choice.extra.length > 0 ? { extra: choice.extra.map((file) => file.to) } : {}) };
+    await output.text(MARKER, JSON.stringify(marker, null, 2) + "\n");
     await output.text(".nojekyll", "");
     // For the one who gets the site without having built it
     await output.text("README.txt", siteReadme(app.vault.getName(), doc.documentElement.lang));
@@ -308,6 +310,12 @@ async function build(
       }
     };
     await Promise.all(Array.from({ length: Math.min(output.copiesAtATime, choice.files.length) }, copier));
+    for (const file of choice.extra) {
+      check();
+      progress(done, total, file.from);
+      await output.copy(file.from, file.to);
+      done++;
+    }
 
     const icons: Record<string, string> = {};
     for (const name of ICON_NAMES) {

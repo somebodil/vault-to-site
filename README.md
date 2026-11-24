@@ -45,7 +45,7 @@ The dialog is where you look over what goes in. A build without it is there for 
   }
   ```
 
-  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
+  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
 
 ## What the site has
 
@@ -82,6 +82,8 @@ Three things decide, in this order. A later one always wins over an earlier one.
 4. **Take in only by property.** One property a line, as `publish: true`. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that is built with nobody looking the list over: a note does not go in by being new.
 
    **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
+
+5. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a path where the site itself writes, as `index.html`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
 
 **Ticks are for notes.** A picture or another file that is not a note is never chosen by a tick, and it is not in the tree. It goes into the site when a note of the site uses it, and only then. So ticking the whole vault does not put the pictures of a private note into the site, nor a file that lies in a folder of private notes and that no note links to. To have a file in the site, link to it or embed it in a note of the site.
 
@@ -134,6 +136,7 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **Renames, stops and refusals** were done in Obsidian on the phone: a folder with left-out notes renamed, a build stopped half way, a vault changed between the list and the build, a file of the user at the place of the archive.
 - **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
 - **In Chrome on the emulated phone** the site was loaded from a web server and read by script: it comes up in the layout for a phone. Touching it there was not tried, because the emulator stopped when a window of Chrome was touched.
+- **A file at a path of its own** was built through the runner in Obsidian 1.15.1 on a Mac: a PDF from a folder that a pattern keeps out, put at the top of a site of 149 real notes, and served from there by a web server.
 - **Not tried:** building in Obsidian on Windows or Linux, on an iPhone or an iPad, the output of plugins of others as Dataview, and using the site by touch in the browser of a real phone.
 
 ## Development

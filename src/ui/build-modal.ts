@@ -94,7 +94,7 @@ export class BuildModal extends Modal {
         ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
       ]);
       summary.empty();
-      summary.createSpan({ text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} go in.` });
+      summary.createSpan({ text: `${count(choice.notes.length, "note")} and ${count(choice.files.length + choice.extra.length, "other file")} go in.` });
       if (keptOut.size > 0) {
         summary.createSpan({ cls: "vault-to-site-muted", text: ` ${String(keptOut.size)} kept out by a rule.` });
       }
@@ -265,6 +265,20 @@ export class BuildModal extends Modal {
         });
       });
 
+    new Setting(contentEl)
+      .setName("Put a file at a path of its own")
+      .setDesc("One file a line, as Resume.pdf: Papers/Resume.pdf. The file of the vault after the colon goes into the site under the path before it, whatever the ticks and the rules say. Not for notes.")
+      .addTextArea((area) => {
+        area.setValue(this.settings.extra);
+        area.inputEl.rows = 2;
+        area.onChange((value) => {
+          this.change((settings) => {
+            settings.extra = value;
+          });
+          afterTyping();
+        });
+      });
+
     const place = new Setting(contentEl);
     const drawPlace = (): void => {
       const isZip = this.settings.format === "zip";
@@ -341,7 +355,7 @@ export class BuildModal extends Modal {
 
     contentEl.createEl("p", {
       cls: "vault-to-site-lead",
-      text: `${count(choice.notes.length, "note")} and ${count(choice.files.length, "other file")} will be written to ${place}. Nothing else of the vault goes into the site.`,
+      text: `${count(choice.notes.length, "note")} and ${count(choice.files.length + choice.extra.length, "other file")} will be written to ${place}. Nothing else of the vault goes into the site.`,
     });
 
     // Said again here, right above the list it is about
@@ -365,6 +379,14 @@ export class BuildModal extends Modal {
 
     list("Notes in the site", choice.notes, true);
     list("Pictures and other files that these notes use", choice.files, false);
+    if (choice.extra.length > 0) {
+      list(
+        "Files at a path of their own",
+        choice.extra.map((file) => `${file.to}  (${file.from})`),
+        true,
+        "Named one by one under Put a file at a path of its own. They go in whatever the ticks and the rules say.",
+      );
+    }
     if (choice.byProperty.length > 0) {
       list(
         "Kept out by a property",

@@ -100,6 +100,9 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
     throw new Error("No note would go into the site: none that is ticked passes the rules.");
   }
   runner.log(`${String(choice.notes.length)} notes and ${String(choice.files.length)} other files go in.`);
+  for (const file of choice.extra) {
+    runner.log(`"${file.from}" goes in as "${file.to}".`);
+  }
   let said = 0;
   const result = await buildSite(
     app,
@@ -125,6 +128,7 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
     place: result.place,
     notes: choice.notes,
     files: choice.files,
+    extra: choice.extra,
     bytes: result.bytes,
     seconds: result.millis / 1000,
     keptOut: { byProperty: choice.byProperty.length, byPattern: choice.byPattern.length, unknownProperties: choice.unread.length, notMarked: choice.unmarked.length },

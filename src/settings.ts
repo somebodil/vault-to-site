@@ -1,4 +1,5 @@
 import { OLD, PART, zipPath } from "./build/output.ts";
+import { renameExtra } from "./select/extra.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
 import { movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
 
@@ -18,6 +19,12 @@ export interface Settings {
    * properties goes in, as `publish: true`. Empty for every ticked note.
    */
   only: string;
+  /**
+   * `path in the site: path in the vault` a line: a file that is put into
+   * the site at a path of its own, as `Resume.pdf: Papers/Resume.pdf`. It
+   * goes in whatever the ticks and the rules say.
+   */
+  extra: string;
   format: Format;
   /** The archive a site is written to, from the root of the vault */
   zip: string;
@@ -41,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   exclude: "",
   properties: DEFAULT_PROPERTY_RULES,
   only: "",
+  extra: "",
   format: "zip",
   // One file in plain sight: it can be shared from a phone, and Obsidian does not list a file it cannot open
   zip: "vault-to-site.zip",
@@ -87,6 +95,7 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
   return {
     ...settings,
     ticks: renameTicks(settings.ticks, from, to, isOntoGone),
+    extra: renameExtra(settings.extra, moved, normal),
     written: [...new Set(settings.written.map(moved))],
     zip: under(zip) === zip ? settings.zip : under(zip),
     folder: under(folder) === folder ? settings.folder : under(folder),
@@ -96,7 +105,7 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
 /** Reads what was saved, and takes the default for what is missing or of the wrong kind */
 export function readSettings(saved: unknown): Settings {
   const data = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
-  const text = (key: "exclude" | "properties" | "only" | "reviewed"): string => {
+  const text = (key: "exclude" | "properties" | "only" | "extra" | "reviewed"): string => {
     const value = data[key];
     return typeof value === "string" ? value : DEFAULT_SETTINGS[key];
   };
@@ -111,6 +120,7 @@ export function readSettings(saved: unknown): Settings {
     exclude: text("exclude"),
     properties: text("properties"),
     only: text("only"),
+    extra: text("extra"),
     format: data.format === "folder" ? "folder" : "zip",
     zip: path("zip"),
     folder: path("folder"),

@@ -1,10 +1,10 @@
 import type { DataAdapter } from "obsidian";
+import { sitePath } from "../select/extra.ts";
 import { ZipWriter } from "./zip.ts";
 
 /** A file in a site that says the plugin made it */
 export const MARKER = "vault-to-site.json";
 
-/** What a build puts at the top of a site: only these are removed before a build */
 /**
  * The names an archive has on the way: while it is written, and while the
  * one before gives way to it. Nobody gives a file of their own such a name,
@@ -14,8 +14,11 @@ export const MARKER = "vault-to-site.json";
 export const PART = ".v2s-part";
 export const OLD = ".v2s-old";
 
+/** What a build puts at the top of a site: only these, and the extra files the marker names, are removed before a build */
 const SITE_FILES = [MARKER, "index.html", ".nojekyll", "README.txt"];
 const SITE_FOLDERS = ["app", "data", "assets"];
+/** The names a site has at its top: an extra file cannot have one of them */
+export const SITE_NAMES: readonly string[] = [...SITE_FILES, ...SITE_FOLDERS];
 
 /** How often a file is written before the build gives up */
 const WRITE_ATTEMPTS = 3;
@@ -150,6 +153,7 @@ export class FolderOutput implements SiteOutput {
       if (!isEmpty && !(await this.adapter.exists(this.root + "/" + MARKER))) {
         throw new Error(`The folder "${this.root}" has files that are not a site of this plugin. Choose an empty folder or a new name.`);
       }
+      await this.removeExtra();
       for (const name of SITE_FOLDERS) {
         if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
           await this.adapter.rmdir(this.root + "/" + name, true);
@@ -206,6 +210,34 @@ export class FolderOutput implements SiteOutput {
     const full = this.root + "/" + path;
     await this.folders.make(folderOf(full));
     return full;
+  }
+
+  /**
+   * Takes away the extra files of the build before, which its marker names,
+   * and the folders that held nothing else. A path that could not have been
+   * an extra file is left alone, whoever wrote it into the marker.
+   */
+  private async removeExtra(): Promise<void> {
+    let named: unknown;
+    try {
+      named = (JSON.parse(await this.adapter.read(this.root + "/" + MARKER)) as { extra?: unknown }).extra;
+    } catch {
+      return;
+    }
+    for (const written of Array.isArray(named) ? named : []) {
+      const path = typeof written === "string" ? sitePath(written, SITE_NAMES) : null;
+      if (path === null || (await this.adapter.stat(this.root + "/" + path))?.type !== "file") {
+        continue;
+      }
+      await this.adapter.remove(this.root + "/" + path);
+      for (let folder = folderOf(path); folder !== ""; folder = folderOf(folder)) {
+        const listed = await this.adapter.list(this.root + "/" + folder);
+        if (listed.files.length > 0 || listed.folders.length > 0) {
+          break;
+        }
+        await this.adapter.rmdir(this.root + "/" + folder, false);
+      }
+    }
   }
 }
 

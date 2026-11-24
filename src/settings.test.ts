@@ -62,6 +62,13 @@ describe("followRename", () => {
     assert.deepEqual(followRename(settings, "Guide", "Manual").ticks, { on: ["Manual"], off: ["Manual/Draft.md"] });
   });
 
+  it("follows a file that is put into the site at a path of its own", () => {
+    const some = { ...settings, extra: "Resume.pdf: Guide/Resume.pdf\nb.pdf: Other/b.pdf" };
+    assert.equal(followRename(some, "Guide", "Manual").extra, "Resume.pdf: Manual/Resume.pdf\nb.pdf: Other/b.pdf");
+    assert.equal(followRename(some, "Guide/Resume.pdf", "Guide/CV.pdf").extra, "Resume.pdf: Guide/CV.pdf\nb.pdf: Other/b.pdf");
+    assert.equal(readSettings({ extra: 3 }).extra, "");
+  });
+
   it("keeps an archive that was put aside the plugin's, and writes the next one where the setting says", () => {
     const next = followRename(settings, "out/site.zip", "backup/site of May.zip");
     assert.deepEqual(next.written, ["backup/site of May.zip", "out/web"]);

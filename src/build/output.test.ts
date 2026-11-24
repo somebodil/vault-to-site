@@ -93,6 +93,11 @@ class MemoryAdapter {
     return Promise.resolve();
   }
 
+  read(path: string): Promise<string> {
+    const file = this.files.get(path);
+    return file === undefined ? Promise.reject(new Error("No such file: " + path)) : Promise.resolve(new TextDecoder().decode(file));
+  }
+
   readBinary(path: string): Promise<ArrayBuffer> {
     const file = this.files.get(path);
     if (file === undefined) {
@@ -176,6 +181,21 @@ describe("FolderOutput", () => {
     adapter.files.set("Notes/keep.md", new Uint8Array(3));
     await assert.rejects(new FolderOutput(adapter.asAdapter, "Notes").prepare(), /not a site of this plugin/);
     assert.equal(adapter.files.has("Notes/keep.md"), true);
+  });
+
+  it("takes away the extra files the marker of the build before names, and their empty folders", async () => {
+    const adapter = new MemoryAdapter();
+    for (const folder of ["site", "site/papers", "site/papers/old", "site/docs", "site/.git"]) {
+      adapter.folders.add(folder);
+    }
+    const marker = { plugin: "vault-to-site", extra: ["Resume.pdf", "papers/old/a.pdf", "docs/b.pdf", "../outside.pdf", ".git/config", "index.html/x", 7, "gone.pdf"] };
+    adapter.files.set("site/" + MARKER, new TextEncoder().encode(JSON.stringify(marker)));
+    for (const file of ["site/Resume.pdf", "site/papers/old/a.pdf", "site/docs/b.pdf", "site/docs/mine.txt", "site/.git/config", "site/CNAME", "outside.pdf"]) {
+      adapter.files.set(file, new Uint8Array(3));
+    }
+    await new FolderOutput(adapter.asAdapter, "site").prepare();
+    assert.deepEqual([...adapter.files.keys()].sort(), ["outside.pdf", "site/.git/config", "site/CNAME", "site/docs/mine.txt"]);
+    assert.deepEqual([...adapter.folders].sort(), ["site", "site/.git", "site/docs"]);
   });
 
   it("refuses the vault itself, and a path that is a file", async () => {

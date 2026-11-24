@@ -1,4 +1,5 @@
 import type { ExcludeRules } from "./exclude.ts";
+import type { ExtraFile } from "./extra.ts";
 import { matchingRule, type PropertyRule } from "./properties.ts";
 import { ticker, type Ticks } from "./ticks.ts";
 
@@ -47,6 +48,8 @@ export interface Choice {
   cut: { from: string; to: string }[];
   /** Every note of the vault that a rule is meant for, ticked or not: the notes whose names should not show */
   guarded: string[];
+  /** Files that are named one by one to go in at a path of their own. Not decided here: see `planExtra`. */
+  extra: ExtraFile[];
 }
 
 /**
@@ -143,10 +146,12 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
     // The plain order, as for the notes: this runs at every tick in the dialog, and with tens of thousands of links the order of a language costs most of it
     cut: cut.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0)),
     guarded: sorted(guarded),
+    extra: [],
   };
 }
 
 /** A sign of what a choice holds: two choices with the same notes and files have the same */
 export function signatureOf(choice: Choice): string {
-  return JSON.stringify([choice.notes, choice.files]);
+  const extra = choice.extra.map((file) => [file.to, file.from]);
+  return JSON.stringify(extra.length === 0 ? [choice.notes, choice.files] : [choice.notes, choice.files, extra]);
 }

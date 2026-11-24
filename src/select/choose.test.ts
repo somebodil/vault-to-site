@@ -189,4 +189,12 @@ describe("signatureOf", () => {
     assert.equal(signatureOf(one), signatureOf(choose(files, rules(["Guide", "Home.md"]))));
     assert.notEqual(signatureOf(one), signatureOf(choose(files, rules(["Home.md"]))));
   });
+
+  it("is another when a file goes in at a path of its own, or another one does", () => {
+    const one = choose(files, rules(["Home.md"]));
+    const withExtra = { ...one, extra: [{ to: "Resume.pdf", from: "Private/Resume.pdf" }] };
+    assert.notEqual(signatureOf(one), signatureOf(withExtra));
+    assert.notEqual(signatureOf(withExtra), signatureOf({ ...one, extra: [{ to: "Resume.pdf", from: "Private/Other.pdf" }] }));
+    assert.equal(signatureOf(one), signatureOf({ ...one, extra: [] }));
+  });
 });
