@@ -114,6 +114,52 @@ describe("a value that is a regular expression", () => {
   });
 });
 
+describe("a regular expression with flags", () => {
+  it("takes the flags i, m, s and u after the last slash", () => {
+    const [same, dot, all] = parsePropertyRules("type: /^(private|meta)$/i\nnote: /a.b/s\nkind: /^\\p{Lu}/msu");
+    assert.equal(same?.pattern?.source, "^(private|meta)$");
+    assert.equal(same?.pattern?.flags, "i");
+    assert.equal(dot?.pattern?.flags, "is");
+    assert.equal(all?.pattern?.flags, "imsu");
+    assert.equal(same?.value, "/^(private|meta)$/i");
+    assert.deepEqual(propertyProblems("type: /^(private|meta)$/i\nnote: /a.b/s\nkind: /^\\p{Lu}/msu"), []);
+  });
+
+  it("keeps out with them as without them", () => {
+    const rules = parsePropertyRules("type: /^(private|meta)$/i");
+    assert.notEqual(matchingRule({ type: "private" }, rules), null);
+    assert.notEqual(matchingRule({ Type: " META " }, rules), null);
+    assert.equal(matchingRule({ type: "knowledge" }, rules), null);
+    // With `s` a dot is also the end of a line, and with `m` a line of a value has its own start
+    assert.notEqual(matchingRule({ note: "a\nb" }, parsePropertyRules("note: /a.b/s")), null);
+    assert.equal(matchingRule({ note: "a\nb" }, parsePropertyRules("note: /a.b/")), null);
+    assert.notEqual(matchingRule({ note: "one\ntwo" }, parsePropertyRules("note: /^two/m")), null);
+  });
+
+  it("is no rule with any other letter after the last slash, and the line is named", () => {
+    const input = "type: /private/g\ntags: /^draft/y\nkind: /x/I\nstate: /a/ii\npath: /usr/bin\npublish: false";
+    assert.deepEqual(parsePropertyRules(input), [{ key: "publish", value: "false" }]);
+    assert.deepEqual(invalidPropertyPatterns(input), ["type: /private/g", "tags: /^draft/y", "kind: /x/I", "state: /a/ii", "path: /usr/bin"]);
+    assert.deepEqual(propertyProblems("type: /private/g\nstate: /a/ii"), [
+      '"type: /private/g" has letters after its last slash that are not flags of a rule: only i, m, s and u are.',
+      // A flag that is given twice is not a valid expression, as in JavaScript
+      '"state: /a/ii" does not hold a valid regular expression.',
+    ]);
+  });
+
+  it("leaves a value that only has slashes in it plain text", () => {
+    assert.deepEqual(parsePropertyRules("a: /x\nb: //\nc: //i\nd: x/y/i\ne: /2026/11\nf: /a/b.c"), [
+      { key: "a", value: "/x" },
+      { key: "b", value: "//" },
+      { key: "c", value: "//i" },
+      { key: "d", value: "x/y/i" },
+      { key: "e", value: "/2026/11" },
+      { key: "f", value: "/a/b.c" },
+    ]);
+    assert.deepEqual(propertyProblems("a: /x\nb: //\nc: //i\nd: x/y/i\ne: /2026/11\nf: /a/b.c"), []);
+  });
+});
+
 describe("propertyProblems", () => {
   it("says what is wrong with each line that is not a rule that works", () => {
     assert.deepEqual(propertyProblems("type: private\nprivate\ntype: /(/"), [

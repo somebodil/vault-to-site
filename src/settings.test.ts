@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_SETTINGS, followRename, placeOf, readSettings, type Settings } from "./settings.ts";
+import { DEFAULT_SETTINGS, followDelete, followRename, givenProblems, placeOf, readSettings, type Settings } from "./settings.ts";
 
 describe("readSettings", () => {
   it("gives the defaults for nothing saved", () => {
@@ -40,6 +40,56 @@ describe("readSettings", () => {
 
   it("keeps an empty list of property rules: no rule is a choice", () => {
     assert.equal(readSettings({ properties: "" }).properties, "");
+  });
+
+  it("keeps the sign of what was looked over, and takes the long form of before as none", () => {
+    assert.equal(readSettings({ reviewed: "0123456789abcdef" }).reviewed, "0123456789abcdef");
+    assert.equal(readSettings({ reviewed: '[["Home.md","Guide/A.md"],["pic.png"]]' }).reviewed, "");
+    assert.equal(readSettings({ reviewed: 5 }).reviewed, "");
+    assert.equal(readSettings({}).reviewed, "");
+  });
+});
+
+describe("givenProblems", () => {
+  it("finds nothing wrong with settings as they are written for a run", () => {
+    assert.deepEqual(givenProblems({}), []);
+    assert.deepEqual(givenProblems({ ticks: { on: [""] }, only: "publish: true", format: "folder", folder: "_site" }), []);
+    assert.deepEqual(
+      givenProblems({ ticks: { on: ["Guide"], off: [] }, exclude: "", include: "^Guide/", properties: "type: private", only: "", extra: "a.pdf: b.pdf", format: "zip", zip: "site", folder: "out" }),
+      [],
+    );
+  });
+
+  it("names a key that is not a setting", () => {
+    assert.deepEqual(givenProblems({ exlude: "^Private/", ticks: { on: [""] } }), [
+      '"exlude" is not a setting: a run takes ticks, exclude, include, properties, only, extra, format, zip and folder.',
+    ]);
+    // What the plugin keeps for itself is not given to a run
+    assert.equal(givenProblems({ written: ["Notes"], reviewed: "" }).length, 2);
+    assert.deepEqual(givenProblems({ ticks: { on: [""], of: ["Private"] } }), ['"ticks.of" is not a setting: "ticks" has the lists "on" and "off".']);
+  });
+
+  it("names a value of the wrong kind", () => {
+    assert.deepEqual(givenProblems({ only: ["publish: true"] }), ['"only" has to be text, as it is typed in the dialog.']);
+    for (const key of ["exclude", "include", "properties", "only", "extra"]) {
+      for (const value of [null, 5, true, ["x"], { x: 1 }]) {
+        assert.deepEqual(givenProblems({ [key]: value }), [`"${key}" has to be text, as it is typed in the dialog.`]);
+      }
+    }
+    assert.deepEqual(givenProblems({ format: "tar" }), ['"format" has to be "zip" or "folder".']);
+    assert.deepEqual(givenProblems({ format: ["zip"] }), ['"format" has to be "zip" or "folder".']);
+    assert.deepEqual(givenProblems({ zip: 5, folder: "  " }), ['"zip" has to be a path, as text.', '"folder" has to be a path, as text.']);
+    for (const ticks of [null, "Guide", [""], 5]) {
+      assert.deepEqual(givenProblems({ ticks }), ['"ticks" has to be an object with the lists "on" and "off", as {"on": [""]}.']);
+    }
+    assert.deepEqual(givenProblems({ ticks: { on: "", off: ["a", 5] } }), [
+      '"ticks.on" has to be a list of paths, each as text: [""] is the whole vault.',
+      '"ticks.off" has to be a list of paths, each as text: [""] is the whole vault.',
+    ]);
+  });
+
+  it("names every one of them", () => {
+    assert.equal(givenProblems({ only: ["publish: true"], exlude: "^Private/", format: "site" }).length, 3);
   });
 });
 
@@ -114,5 +164,40 @@ describe("followRename", () => {
 
   it("leaves the settings as they are for a rename elsewhere", () => {
     assert.deepEqual(followRename(settings, "Notes/a.md", "Notes/b.md"), settings);
+  });
+
+  it("gives back the same object when nothing has changed, and another when something has", () => {
+    const some: Settings = { ...settings, extra: "Resume.pdf: Guide/Resume.pdf" };
+    assert.equal(followRename(some, "Notes/a.md", "Notes/b.md"), some);
+    assert.equal(followRename(some, "Notes", "Wiki", true), some);
+    assert.notEqual(followRename(some, "Guide/Draft.md", "Guide/Sketch.md"), some);
+    assert.notEqual(followRename(some, "Guide/Resume.pdf", "Guide/CV.pdf"), some);
+    assert.notEqual(followRename(some, "out/web", "out/web of May"), some);
+    assert.notEqual(followRename(some, "out", "public"), some);
+    // A tick that is dropped because something else came to its path is a change as well
+    assert.notEqual(followRename(some, "Notes/a.md", "Guide/Draft.md", true), some);
+  });
+});
+
+describe("followDelete", () => {
+  const settings: Settings = { ...DEFAULT_SETTINGS, ticks: { on: ["Blog"], off: [] }, zip: "out/site", folder: "Blog", written: ["out/site.zip", "Blog", "Blogs"] };
+
+  it("forgets what a build wrote at a path that is deleted, or inside it", () => {
+    assert.deepEqual(followDelete(settings, "Blog").written, ["out/site.zip", "Blogs"]);
+    assert.deepEqual(followDelete(settings, "out/site.zip").written, ["Blog", "Blogs"]);
+    assert.deepEqual(followDelete(settings, "out").written, ["Blog", "Blogs"]);
+  });
+
+  it("changes nothing else: the ticks and the place of the next build stay", () => {
+    const next = followDelete(settings, "Blog");
+    assert.deepEqual({ ...next, written: settings.written }, settings);
+  });
+
+  it("gives back the same object for a delete elsewhere, also inside a site", () => {
+    assert.equal(followDelete(settings, "Notes/a.md"), settings);
+    assert.equal(followDelete(settings, "Blog/index.html"), settings);
+    assert.equal(followDelete(settings, "Blo"), settings);
+    assert.equal(followDelete(settings, "out/site.zip.v2s-old"), settings);
+    assert.equal(followDelete(settings, ""), settings);
   });
 });

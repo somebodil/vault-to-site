@@ -67,6 +67,36 @@ describe("planExtra", () => {
   });
 });
 
+describe("paths that lie inside each other", () => {
+  it("are not taken: a path cannot be a file and a folder", () => {
+    const plan = planExtra("a: Papers/a.pdf\na/b.pdf: Private/Resume.pdf\nc.pdf: Papers/a.pdf", kindOf, same, OWN);
+    assert.deepEqual(plan.files, [
+      { to: "a", from: "Papers/a.pdf" },
+      { to: "c.pdf", from: "Papers/a.pdf" },
+    ]);
+    assert.deepEqual(plan.invalid, ['"a/b.pdf" lies inside "a", which is named as a file: a path cannot be a file and a folder.']);
+  });
+
+  it("are seen in either order, however deep, and in capital or small letters", () => {
+    const plan = planExtra("Docs/2026/a.pdf: Papers/a.pdf\ndocs: Private/Resume.pdf\nDOCS/2026: Private/Resume.pdf\ndocs/2026/A.PDF/x: Papers/a.pdf", kindOf, same, OWN);
+    assert.deepEqual(plan.files, [{ to: "Docs/2026/a.pdf", from: "Papers/a.pdf" }]);
+    assert.deepEqual(plan.invalid, [
+      '"docs" is a folder of "Docs/2026/a.pdf", which is named as well: a path cannot be a file and a folder.',
+      '"DOCS/2026" is a folder of "Docs/2026/a.pdf", which is named as well: a path cannot be a file and a folder.',
+      '"docs/2026/A.PDF/x" lies inside "Docs/2026/a.pdf", which is named as a file: a path cannot be a file and a folder.',
+    ]);
+  });
+
+  it("takes files beside each other in one folder, and names that only start the same", () => {
+    const plan = planExtra("docs/a.pdf: Papers/a.pdf\ndocs/b.pdf: Private/Resume.pdf\ndocs.pdf: Papers/a.pdf\ndoc: Papers/a.pdf", kindOf, same, OWN);
+    assert.deepEqual(
+      plan.files.map((file) => file.to),
+      ["doc", "docs.pdf", "docs/a.pdf", "docs/b.pdf"],
+    );
+    assert.deepEqual(plan.invalid, []);
+  });
+});
+
 describe("renameExtra", () => {
   it("follows a file that got another name, and leaves the other lines as they are", () => {
     const moved = (path: string): string => (path.startsWith("Private/") ? "Mine/" + path.slice(8) : path);

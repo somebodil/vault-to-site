@@ -1,6 +1,7 @@
-import { type App, Notice } from "obsidian";
+import { type App, normalizePath, Notice } from "obsidian";
 import { signatureOf } from "../select/choose.ts";
-import { readSettings, type Settings } from "../settings.ts";
+import { givenProblems, placeOf, readSettings, type Settings } from "../settings.ts";
+import { isSiteArchive } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { buildSite } from "./site.ts";
 
@@ -32,13 +33,14 @@ interface Runner {
  *   being new. What went in is given back, for the record of the run.
  *
  * @param claim called with the place that is written to: see `buildSite`
+ * @param stop held by the plugin, which sets it when it is turned off: there is no dialog here to stop the build from
  */
-export async function buildAgain(app: App, saved: Settings, version: string, claim: (place: string) => Promise<void>): Promise<void> {
+export async function buildAgain(app: App, saved: Settings, version: string, claim: (place: string) => Promise<void>, stop: { now: boolean }): Promise<void> {
   const runner = (window as unknown as { obsidianCmdRunner?: Runner }).obsidianCmdRunner;
   if (runner !== undefined) {
     runner.claim();
     try {
-      runner.done(await unattended(app, saved, version, runner));
+      runner.done(await unattended(app, saved, version, runner, stop));
     } catch (error) {
       runner.fail(error);
     }
@@ -59,7 +61,7 @@ export async function buildAgain(app: App, saved: Settings, version: string, cla
       saved.reviewed,
       claim,
       (finished, total) => notice.setMessage(`Building the site: ${String(Math.min(finished + 1, total))} of ${String(total)}`),
-      { now: false },
+      stop,
     );
     notice.setMessage(`The site is built: ${String(result.notes)} notes, in "${result.place}".`);
     window.setTimeout(() => notice.hide(), 6000);
@@ -82,12 +84,17 @@ function widthOf(given: unknown): number {
   return typeof given === "number" && Number.isFinite(given) && given >= 320 && given <= 10_000 ? Math.round(given) : WIDTH_UNATTENDED;
 }
 
-async function unattended(app: App, saved: Settings, version: string, runner: Runner): Promise<unknown> {
+async function unattended(app: App, saved: Settings, version: string, runner: Runner, stop: { now: boolean }): Promise<unknown> {
   const given = runner.args.settings;
   if (given !== undefined && (typeof given !== "object" || given === null || Array.isArray(given))) {
     throw new Error('The settings for the run have to be an object, as {"ticks": {"on": [""]}, "only": "publish: true"}.');
   }
-  // Laid over what is saved in the vault, and read with the same care: what is of the wrong kind falls back
+  // A setting that cannot be read is not passed over: the site would be built without the rule it was written for
+  const problems = given === undefined ? [] : givenProblems(given as Record<string, unknown>);
+  if (problems.length > 0) {
+    throw new Error(`${problems.join(" ")} A site is not built with settings that cannot be read.`);
+  }
+  // Laid over what is saved in the vault
   const settings = given === undefined ? saved : readSettings({ ...saved, ...given });
   if (settings.ticks.on.length === 0) {
     throw new Error('Nothing is ticked, so nothing would go into the site. Say what goes in: {"ticks": {"on": [""]}} is the whole vault, and "only": "publish: true" takes of it the notes that are marked.');
@@ -103,10 +110,14 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
   for (const file of choice.extra) {
     runner.log(`"${file.from}" goes in as "${file.to}".`);
   }
+  // Nothing is saved in a run, so there is no record that the archive of the run before is the plugin's:
+  // it is known by what it holds. A file of someone else at its place is still refused.
+  const place = placeOf(settings, normalizePath);
+  const isOwnArchive = settings.format === "zip" && !settings.written.includes(place) && (await isSiteArchive(app.vault.adapter, place));
   let said = 0;
   const result = await buildSite(
     app,
-    settings,
+    isOwnArchive ? { ...settings, written: [...settings.written, place] } : settings,
     version,
     signatureOf(choice),
     // Nothing is saved in a run: the settings of the run are not those of the vault
@@ -118,7 +129,7 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
         runner.log(`${String(tenth * 10)}%`);
       }
     },
-    { now: false },
+    stop,
     widthOf(runner.args.width),
   );
   if (result.failed.length > 0) {

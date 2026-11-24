@@ -77,6 +77,50 @@ export const browserDeflate: Deflate = async (data) => {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 };
 
+/** Makes data that was made smaller as it was (raw inflate), or returns null where the browser cannot */
+export type Inflate = (data: Uint8Array) => Promise<Uint8Array | null>;
+
+export const browserInflate: Inflate = async (data) => {
+  if (typeof DecompressionStream === "undefined") {
+    return null;
+  }
+  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+};
+
+/**
+ * The content of the first file of an archive when the file has the name
+ * that is asked for, else null: also for what is no archive, or is one that
+ * is cut off or does not hold what its checksum says.
+ *
+ * Only the header before the first file is read, not the list at the end: an
+ * archive written here has its files in the order they were added.
+ */
+export async function readFirst(zip: Uint8Array, name: string, inflate: Inflate = browserInflate): Promise<Uint8Array | null> {
+  if (zip.length < 30) {
+    return null;
+  }
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  const method = view.getUint16(8, true);
+  const packed = view.getUint32(18, true);
+  const nameLength = view.getUint16(26, true);
+  const bodyAt = 30 + nameLength + view.getUint16(28, true);
+  if (view.getUint32(0, true) !== 0x04034b50 || bodyAt + packed > zip.length || (method !== STORED && method !== DEFLATED)) {
+    return null;
+  }
+  if (new TextDecoder().decode(zip.subarray(30, 30 + nameLength)) !== name) {
+    return null;
+  }
+  const body = zip.subarray(bodyAt, bodyAt + packed);
+  try {
+    const data = method === STORED ? body : await inflate(body);
+    return data !== null && data.length === view.getUint32(22, true) && crc32(data) === view.getUint32(14, true) ? data : null;
+  } catch {
+    // What does not unpack is not a file of an archive
+    return null;
+  }
+}
+
 /** Endings of files that are compressed already: making them smaller again costs time and gains nothing */
 const PACKED_ALREADY = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "avif", "heic", "woff", "woff2", "mp3", "m4a", "ogg", "flac", "mp4", "webm", "mov", "mkv", "zip", "gz", "7z", "pdf", "docx", "xlsx", "pptx",

@@ -14,12 +14,13 @@ import {
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
-import { FolderOutput, MARKER, type SiteOutput, ZipOutput } from "./output.ts";
+import { FolderOutput, MARKER, markerText, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { siteReadme } from "./readme.ts";
 import { headingOf, renderNote, resourceMap, type RenderContext } from "./render.ts";
 import { captureScriptFonts, captureStyles } from "./styles.ts";
 import { shownValue, shownWords, soleLink } from "./words.ts";
+import { severalAtATime } from "./workers.ts";
 
 declare const VIEWER_JS: string;
 declare const VIEWER_CSS: string;
@@ -29,6 +30,7 @@ export type Progress = (done: number, total: number, label: string) => void;
 
 export interface BuildResult {
   notes: number;
+  /** The other files: those the notes use, and those at a path of their own */
   files: number;
   /** The archive or the folder, from the root of the vault */
   place: string;
@@ -130,8 +132,9 @@ async function build(
   );
 
   const place = placeOf(settings, normalizePath);
+  const extraPaths = choice.extra.map((file) => file.to);
   const output: SiteOutput =
-    settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place);
+    settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place, extraPaths);
   await output.prepare();
   if (settings.format === "folder") {
     // Before the first file: what a build has started to write into a folder is the plugin's, also when the build is stopped
@@ -142,7 +145,7 @@ async function build(
   let done = 0;
   const check = (): void => {
     if (stop.now) {
-      throw new BuildStopped();
+      throw new BuildStopped("The build was stopped.");
     }
   };
 
@@ -241,32 +244,18 @@ async function build(
   };
 
   try {
-    // The extra files are named in the marker: the next build takes away those it does not write again
-    const marker = { plugin: "vault-to-site", version, ...(choice.extra.length > 0 ? { extra: choice.extra.map((file) => file.to) } : {}) };
-    await output.text(MARKER, JSON.stringify(marker, null, 2) + "\n");
+    // The first file of a site: an archive is known as one of the plugin by how it starts (`isSiteArchive`). The
+    // extra files are named in it: the next build takes away those it does not write again.
+    await output.text(MARKER, markerText(version, extraPaths));
     await output.text(".nojekyll", "");
     // For the one who gets the site without having built it
     await output.text("README.txt", siteReadme(app.vault.getName(), doc.documentElement.lang));
 
     try {
-      // When one of them cannot go on, as when a write fails, the others stop too: they are not left to write into a build that is over
-      let next = 0;
-      // Kept in an object: what a function sets from inside is not seen by the compiler on a plain variable
-      const first: { failure: Error | null } = { failure: null };
-      const worker = async (): Promise<void> => {
-        while (next < choice.notes.length && first.failure === null) {
-          try {
-            check();
-            await drawNote(next++);
-          } catch (error) {
-            first.failure ??= error instanceof Error ? error : new Error(String(error));
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(AT_A_TIME, choice.notes.length) }, worker));
-      if (first.failure !== null) {
-        throw first.failure;
-      }
+      await severalAtATime(choice.notes.length, AT_A_TIME, async (at) => {
+        check();
+        await drawNote(at);
+      });
       check();
 
       // After the notes: drawing a formula adds styles for the signs it uses
@@ -296,20 +285,16 @@ async function build(
         files[idOf(path)] = { p: path, a: asset };
       }
     }
-    let nextFile = 0;
-    const copier = async (): Promise<void> => {
-      while (nextFile < choice.files.length) {
-        check();
-        const path = choice.files[nextFile++] ?? "";
-        const asset = assets.get(path);
-        progress(done, total, path);
-        if (asset !== undefined) {
-          await output.copy(path, asset);
-        }
-        done++;
+    await severalAtATime(choice.files.length, output.copiesAtATime, async (at) => {
+      check();
+      const path = choice.files[at] ?? "";
+      const asset = assets.get(path);
+      progress(done, total, path);
+      if (asset !== undefined) {
+        await output.copy(path, asset);
       }
-    };
-    await Promise.all(Array.from({ length: Math.min(output.copiesAtATime, choice.files.length) }, copier));
+      done++;
+    });
     for (const file of choice.extra) {
       check();
       progress(done, total, file.from);
@@ -349,17 +334,14 @@ async function build(
     await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();
     progress(total, total, "Writing");
-    if (settings.format === "zip") {
-      // Only now: until the archive is about to stand, there is nothing of the plugin at its place, and a
-      // file that someone puts there in the meantime is theirs
-      await claim(place);
-    }
-    const written = await output.finish();
+    // An archive is claimed only now, by the output, when it is about to stand: until then there is nothing
+    // of the plugin at its place, and a file that someone puts there in the meantime is theirs
+    const written = await output.finish(settings.format === "zip" ? () => claim(place) : undefined);
     progress(total, total, "");
 
     return {
       notes: choice.notes.length,
-      files: choice.files.length,
+      files: choice.files.length + choice.extra.length,
       place: written.place,
       bytes: written.bytes,
       millis: Date.now() - start,

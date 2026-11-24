@@ -1,6 +1,6 @@
 import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
-import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
+import { followDelete, followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { buildAgain } from "./build/again.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
@@ -12,6 +12,8 @@ export default class VaultToSitePlugin extends Plugin {
   private dialog: BuildModal | null = null;
   /** The paths that something was deleted from since the plugin was turned on, and that are still empty */
   private readonly gone = new Set<string>();
+  /** Stops a build without the dialog. Set when the plugin is turned off. */
+  private readonly stop = { now: false };
 
   override async onload(): Promise<void> {
     await this.readData();
@@ -31,12 +33,18 @@ export default class VaultToSitePlugin extends Plugin {
       name: "Build again without the dialog",
       icon: ICON,
       callback: () =>
-        void buildAgain(this.app, this.config, this.manifest.version, async (place) => {
-          if (!this.config.written.includes(place)) {
-            this.config.written = [...this.config.written, place];
-            await this.saveData(this.config);
-          }
-        }),
+        void buildAgain(
+          this.app,
+          this.config,
+          this.manifest.version,
+          async (place) => {
+            if (!this.config.written.includes(place)) {
+              this.config.written = [...this.config.written, place];
+              await this.saveData(this.config);
+            }
+          },
+          this.stop,
+        ),
     });
     this.addRibbonIcon(ICON, "Build a site", open);
 
@@ -53,7 +61,8 @@ export default class VaultToSitePlugin extends Plugin {
             }
           }
         }
-        if (JSON.stringify(next) !== JSON.stringify(this.config)) {
+        // The same object when nothing has changed: Obsidian tells of every file in a folder that is moved
+        if (next !== this.config) {
           Object.assign(this.config, next);
           void this.saveData(this.config);
         }
@@ -61,14 +70,30 @@ export default class VaultToSitePlugin extends Plugin {
     );
     // A path that something was deleted from, until something is made there again: a sync deletes a
     // note and makes it again, and its tick is still meant for it. What is renamed onto such a path is another thing.
-    this.registerEvent(this.app.vault.on("delete", (file) => this.gone.add(file.path)));
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        this.gone.add(file.path);
+        // What a build wrote and is deleted is the plugin's no longer: the path may be a folder of notes later
+        const next = followDelete(this.config, file.path);
+        if (next !== this.config) {
+          Object.assign(this.config, next);
+          void this.saveData(this.config);
+        }
+      }),
+    );
     this.registerEvent(this.app.vault.on("create", (file) => this.gone.delete(file.path)));
   }
 
-  /** Closing the dialog stops a build that runs: nothing of the plugin goes on working after it is turned off */
+  /**
+   * Closing the dialog stops a build that runs, and so does the flag of a
+   * build without the dialog: nothing of the plugin goes on working after
+   * it is turned off. A plugin that is turned on again could else start a
+   * second build that writes to the same place.
+   */
   override onunload(): void {
     this.dialog?.close();
     this.dialog = null;
+    this.stop.now = true;
   }
 
   /** Called by Obsidian when data.json is changed by something else: a sync, a version control tool, an editor */

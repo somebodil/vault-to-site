@@ -46,6 +46,15 @@ function linesOf(text: string): string[] {
     .filter((line) => line !== "");
 }
 
+/** The folders a path lies in, from the nearest one up: `a/b` and `a` for `a/b/c.pdf` */
+function foldersOf(path: string): string[] {
+  const folders: string[] = [];
+  for (let slash = path.lastIndexOf("/"); slash > 0; slash = path.lastIndexOf("/", slash - 1)) {
+    folders.push(path.slice(0, slash));
+  }
+  return folders;
+}
+
 /**
  * The extra files a setting names, and what is wrong with it.
  *
@@ -66,7 +75,10 @@ export function planExtra(
 ): { files: ExtraFile[]; invalid: string[] } {
   const files: ExtraFile[] = [];
   const invalid: string[] = [];
-  const taken = new Set<string>();
+  /** The paths taken so far, by their small letters: a file system that takes capital and small letters as the same has one file for both */
+  const taken = new Map<string, string>();
+  /** The folders that the paths taken so far lie in, by their small letters, each with one of those paths */
+  const folders = new Map<string, string>();
   for (const line of linesOf(text)) {
     const colon = line.indexOf(":");
     const written = colon < 0 ? "" : line.slice(colon + 1).trim();
@@ -89,11 +101,30 @@ export function planExtra(
       invalid.push(`"${written}" is a note: a note goes into the site by the ticks and the rules only.`);
       continue;
     }
-    if (taken.has(to.toLowerCase())) {
+    const key = to.toLowerCase();
+    if (taken.has(key)) {
       invalid.push(`"${to}" is named twice.`);
       continue;
     }
-    taken.add(to.toLowerCase());
+    // A path cannot be a file and a folder: `a` together with `a/b` fails at the write, or gives an archive that cannot be unpacked
+    const above = foldersOf(key)
+      .map((folder) => taken.get(folder))
+      .find((file) => file !== undefined);
+    const inside = folders.get(key);
+    if (above !== undefined) {
+      invalid.push(`"${to}" lies inside "${above}", which is named as a file: a path cannot be a file and a folder.`);
+      continue;
+    }
+    if (inside !== undefined) {
+      invalid.push(`"${to}" is a folder of "${inside}", which is named as well: a path cannot be a file and a folder.`);
+      continue;
+    }
+    taken.set(key, to);
+    for (const folder of foldersOf(key)) {
+      if (!folders.has(folder)) {
+        folders.set(folder, to);
+      }
+    }
     files.push({ to, from });
   }
   return { files: files.sort((a, b) => (a.to < b.to ? -1 : a.to > b.to ? 1 : 0)), invalid };

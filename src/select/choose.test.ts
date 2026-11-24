@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { choose, signatureOf, type ChoiceRules, type VaultFile } from "./choose.ts";
+import { choose, SIGNATURE, signatureOf, type ChoiceRules, type VaultFile } from "./choose.ts";
 import { parseExcludeRules } from "./exclude.ts";
 import { DEFAULT_PROPERTY_RULES, parsePropertyRules } from "./properties.ts";
 
@@ -279,5 +279,19 @@ describe("signatureOf", () => {
     assert.notEqual(signatureOf(one), signatureOf(withExtra));
     assert.notEqual(signatureOf(withExtra), signatureOf({ ...one, extra: [{ to: "Resume.pdf", from: "Private/Other.pdf" }] }));
     assert.equal(signatureOf(one), signatureOf({ ...one, extra: [] }));
+  });
+
+  it("is short, however many notes there are", () => {
+    const many = Array.from({ length: 5000 }, (_, i) => `Notes/A folder of some length/Note number ${String(i)} with a name.md`);
+    const large = { ...choose(files, rules([""])), notes: many };
+    assert.match(signatureOf(large), SIGNATURE);
+    assert.equal(signatureOf(large).length, 16);
+    assert.match(signatureOf(choose([], rules([]))), SIGNATURE);
+    // One note more, one less, one with another name, and two that changed places
+    const others = [[...many, "Z.md"], many.slice(1), ["Notes/Other.md", ...many.slice(1)], [many[1] ?? "", many[0] ?? "", ...many.slice(2)]];
+    const signs = new Set([signatureOf(large), ...others.map((notes) => signatureOf({ ...large, notes }))]);
+    assert.equal(signs.size, 5);
+    // A note is not a file: the same path in the other list is another site
+    assert.notEqual(signatureOf({ ...large, notes: [], files: ["a"] }), signatureOf({ ...large, notes: ["a"], files: [] }));
   });
 });

@@ -4,13 +4,14 @@
  * with no value, as `draft:`, is every note that has the property, whatever
  * it holds. A value between slashes, as `type: /^(private|meta)$/`, is a
  * regular expression: the property meets the rule when the expression finds
- * something in what it holds.
+ * something in what it holds. Letters after the last slash are its flags, as
+ * in `/^(private|meta)$/i`.
  */
 export interface PropertyRule {
   key: string;
   /** As it was written, also for a regular expression: `/^(private|meta)$/` */
   value: string;
-  /** The regular expression of a value that is written between slashes. It ignores case. */
+  /** The regular expression of a value that is written between slashes, with the flags after them. It ignores case. */
   pattern?: RegExp;
 }
 
@@ -30,52 +31,81 @@ export function invalidPropertyLines(input: string): string[] {
 }
 
 /**
- * What is written between the slashes of a value that is a regular
- * expression, as `/^draft/`, or null for a value that is plain text. Two
- * slashes with nothing between them are plain text.
+ * The flags a value that is a regular expression may have after its last
+ * slash. `i` is taken and changes nothing: upper and lower case are the same
+ * in every rule. A flag that makes an expression find things one after the
+ * other, as `g`, is not for a rule that is asked once for each value.
  */
-function patternSource(value: string): string | null {
-  return value.length > 2 && value.startsWith("/") && value.endsWith("/") ? value.slice(1, -1) : null;
+const FLAGS = "imsu";
+
+/**
+ * What is written between the slashes of a value that is a regular
+ * expression, as `/^draft/`, with the letters after the last slash, or null
+ * for a value that is plain text. Two slashes with nothing between them are
+ * plain text, and so is a value with one slash.
+ */
+function patternParts(value: string): { source: string; flags: string } | null {
+  const parts = /^\/(.+)\/([A-Za-z]*)$/s.exec(value);
+  return parts === null ? null : { source: parts[1] ?? "", flags: parts[2] ?? "" };
 }
 
-/** The regular expression of a value, null for plain text, and "invalid" for one that cannot be compiled */
-function patternOf(value: string): RegExp | null | "invalid" {
-  const source = patternSource(value);
-  if (source === null) {
+/**
+ * The regular expression of a value, null for plain text, "flags" for one
+ * with a flag that a rule cannot have, and "invalid" for one that cannot be
+ * compiled.
+ */
+function patternOf(value: string): RegExp | null | "flags" | "invalid" {
+  const parts = patternParts(value);
+  if (parts === null) {
     return null;
+  }
+  if ([...parts.flags].some((flag) => !FLAGS.includes(flag))) {
+    return "flags";
   }
   try {
     // As the patterns for paths: upper and lower case are the same, and letters are compared in one form
-    return new RegExp(source.normalize("NFC"), "i");
+    return new RegExp(parts.source.normalize("NFC"), parts.flags.includes("i") ? parts.flags : "i" + parts.flags);
   } catch {
     return "invalid";
   }
 }
 
+/** The lines whose value is written as a regular expression and is not one that works, with what is wrong with each */
+function brokenPatterns(input: string): { line: string; why: "flags" | "invalid" }[] {
+  const broken: { line: string; why: "flags" | "invalid" }[] = [];
+  for (const line of input.split("\n").map((one) => one.trim())) {
+    const pattern = line.indexOf(":") >= 1 ? patternOf(line.slice(line.indexOf(":") + 1).trim()) : null;
+    if (pattern === "flags" || pattern === "invalid") {
+      broken.push({ line, why: pattern });
+    }
+  }
+  return broken;
+}
+
 /**
  * The lines whose value is written as a regular expression that is not a
- * valid one, as `type: /(/`. Such a line keeps nothing out and marks
- * nothing, so it is not passed over in silence either.
+ * valid one, as `type: /(/`, or that has a flag a rule cannot have, as
+ * `type: /private/g`. Such a line keeps nothing out and marks nothing, so it
+ * is not passed over in silence either.
  */
 export function invalidPropertyPatterns(input: string): string[] {
-  return input
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.indexOf(":") >= 1 && patternOf(line.slice(line.indexOf(":") + 1).trim()) === "invalid");
+  return brokenPatterns(input).map((broken) => broken.line);
 }
 
 /** What is wrong with an input of properties, said for the one who wrote it: nothing when every line is a rule that works */
 export function propertyProblems(input: string): string[] {
   return [
     ...invalidPropertyLines(input).map((line) => `"${line}" is not a property: write it as key: value.`),
-    ...invalidPropertyPatterns(input).map((line) => `"${line}" does not hold a valid regular expression.`),
+    ...brokenPatterns(input).map(({ line, why }) =>
+      why === "flags" ? `"${line}" has letters after its last slash that are not flags of a rule: only i, m, s and u are.` : `"${line}" does not hold a valid regular expression.`,
+    ),
   ];
 }
 
 /**
  * One rule a line. Lines without a colon, or without a key, are not rules:
  * see `invalidPropertyLines`. Nor is a line whose regular expression is not
- * a valid one: see `invalidPropertyPatterns`.
+ * a valid one, or has a flag a rule cannot have: see `invalidPropertyPatterns`.
  */
 export function parsePropertyRules(input: string): PropertyRule[] {
   const rules: PropertyRule[] = [];
@@ -92,7 +122,7 @@ export function parsePropertyRules(input: string): PropertyRule[] {
     const pattern = patternOf(value);
     if (pattern === null) {
       rules.push({ key, value });
-    } else if (pattern !== "invalid") {
+    } else if (pattern !== "flags" && pattern !== "invalid") {
       rules.push({ key, value, pattern });
     }
   }

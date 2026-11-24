@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { inflateRawSync } from "node:zlib";
-import { crc32, isPackedAlready, ZipWriter, type Deflate } from "./zip.ts";
+import { crc32, isPackedAlready, readFirst, ZipWriter, type Deflate } from "./zip.ts";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 
@@ -150,5 +150,45 @@ describe("ZipWriter", () => {
     execFileSync("unzip", ["-q", file, "-d", join(dir, "out")]);
     assert.equal(readFileSync(join(dir, "out", "data/n/abc.js"), "utf8"), text);
     assert.equal(readFileSync(join(dir, "out", "assets/한글 이름.txt"), "utf8"), "한글");
+  });
+});
+
+describe("readFirst", () => {
+  const marker = '{\n  "plugin": "vault-to-site",\n  "version": "0.1.0"\n}\n';
+  const text = (data: Uint8Array | null): string | null => (data === null ? null : new TextDecoder().decode(data));
+
+  it("gives the first file of an archive when it has the name asked for", async () => {
+    const zip = await archive([
+      ["vault-to-site.json", bytes(marker)],
+      ["index.html", bytes("<!doctype html>")],
+    ]);
+    assert.equal(text(await readFirst(zip, "vault-to-site.json")), marker);
+    assert.equal(await readFirst(zip, "index.html"), null);
+    assert.equal(await readFirst(zip, "vault-to-site"), null);
+  });
+
+  it("reads a file that was made smaller, and one that was stored as it is", async () => {
+    const long = "A line that repeats. ".repeat(200);
+    const packed = await archive([["a.txt", bytes(long)]]);
+    assert.equal(read(packed).get("a.txt")?.method, 8);
+    assert.equal(text(await readFirst(packed, "a.txt")), long);
+    const stored = await archive([["a.txt", bytes(long)]], () => Promise.resolve(null));
+    assert.equal(read(stored).get("a.txt")?.method, 0);
+    assert.equal(text(await readFirst(stored, "a.txt")), long);
+    // Where the browser cannot unpack, a file that was made smaller is not read
+    assert.equal(await readFirst(packed, "a.txt", () => Promise.resolve(null)), null);
+  });
+
+  it("gives nothing for what is no archive, or one that is cut off or changed", async () => {
+    const zip = await archive([["a.txt", bytes("A line that repeats. ".repeat(200))]]);
+    assert.equal(await readFirst(new Uint8Array(0), "a.txt"), null);
+    assert.equal(await readFirst(bytes("a backup of the person, long enough to hold a header"), "a.txt"), null);
+    assert.equal(await readFirst(zip.subarray(0, 40), "a.txt"), null);
+    const changed = zip.slice();
+    changed[40] ^= 0xff;
+    assert.equal(await readFirst(changed, "a.txt"), null);
+    const stored = (await archive([["a.txt", bytes("plain")]], () => Promise.resolve(null))).slice();
+    stored[35] ^= 0x01;
+    assert.equal(await readFirst(stored, "a.txt"), null, "the checksum does not fit");
   });
 });

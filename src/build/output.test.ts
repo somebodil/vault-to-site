@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateRawSync } from "node:zlib";
 import type { DataAdapter } from "obsidian";
-import { FolderOutput, MARKER, ZipOutput, zipPath } from "./output.ts";
+import { FolderOutput, isSiteArchive, MARKER, markerText, readMarker, ZipOutput, zipPath } from "./output.ts";
 
 /** What the outputs use of the adapter of Obsidian, kept in memory */
 class MemoryAdapter {
@@ -144,6 +144,26 @@ function unzip(zip: Uint8Array): Map<string, string> {
   return files;
 }
 
+/** A marker as a build writes it */
+const marker = (extra: string[] = []): Uint8Array => new TextEncoder().encode(markerText("0.1.0", extra));
+
+describe("the marker", () => {
+  it("is read back as it was written", () => {
+    assert.equal(markerText("0.1.0", []), '{\n  "plugin": "vault-to-site",\n  "version": "0.1.0"\n}\n');
+    assert.deepEqual(readMarker(markerText("0.1.0", [])), { extra: [] });
+    assert.deepEqual(readMarker(markerText("0.1.0", ["Resume.pdf", "docs/a.pdf"])), { extra: ["Resume.pdf", "docs/a.pdf"] });
+  });
+
+  it("is none when it does not say that this plugin wrote it", () => {
+    // The settings of a run by a program have the name of the marker
+    assert.equal(readMarker('{"ticks": {"on": [""]}, "only": "publish: true", "format": "folder", "folder": "_site"}'), null);
+    for (const text of ["", "\u0000\u0000", "not JSON", "null", "[]", '"vault-to-site"', "{}", '{"plugin": "another"}', '{"plugin": ["vault-to-site"]}', '{"version": "0.1.0"}']) {
+      assert.equal(readMarker(text), null, text);
+    }
+    assert.deepEqual(readMarker('{"plugin": "vault-to-site", "extra": "Resume.pdf"}'), { extra: [] });
+  });
+});
+
 describe("zipPath", () => {
   it("ends with .zip, once", () => {
     assert.equal(zipPath("site"), "site.zip");
@@ -169,7 +189,7 @@ describe("FolderOutput", () => {
     for (const folder of ["site", "site/data", "site/data/n", "site/.git"]) {
       adapter.folders.add(folder);
     }
-    adapter.files.set("site/" + MARKER, new Uint8Array(2));
+    adapter.files.set("site/" + MARKER, marker());
     adapter.files.set("site/index.html", new Uint8Array(3));
     adapter.files.set("site/data/n/old.js", new Uint8Array(3));
     adapter.files.set("site/.git/config", new Uint8Array(4));
@@ -204,6 +224,106 @@ describe("FolderOutput", () => {
     await assert.rejects(new FolderOutput(adapter.asAdapter, "").prepare(), /folder of its own/);
     await assert.rejects(new FolderOutput(adapter.asAdapter, "/").prepare(), /folder of its own/);
     await assert.rejects(new FolderOutput(adapter.asAdapter, "note.md").prepare(), /is a file/);
+  });
+
+  it("takes a folder for a site by what its marker says, not by a file of that name", async () => {
+    // A vault with the settings of a run at its top, and folders that have the names of those of a site
+    const vault = (settings: Uint8Array): MemoryAdapter => {
+      const adapter = new MemoryAdapter();
+      for (const folder of ["Vault", "Vault/assets", "Vault/data", "Vault/app"]) {
+        adapter.folders.add(folder);
+      }
+      adapter.files.set("Vault/" + MARKER, settings);
+      for (const file of ["Vault/assets/photo.png", "Vault/data/table.csv", "Vault/app/notes.md", "Vault/index.html", "Vault/README.txt"]) {
+        adapter.files.set(file, new Uint8Array(3));
+      }
+      return adapter;
+    };
+    const texts = ['{"ticks": {"on": [""]}, "format": "folder", "folder": "Vault"}', "", "not JSON", '{"plugin": "another"}'];
+    for (const text of texts) {
+      const adapter = vault(new TextEncoder().encode(text));
+      const before = [...adapter.files.keys()];
+      await assert.rejects(new FolderOutput(adapter.asAdapter, "Vault").prepare(), /not a site of this plugin/, text);
+      assert.deepEqual([...adapter.files.keys()], before, text);
+    }
+    // With a marker of the plugin, the same folder is the site of the build before
+    const site = vault(marker());
+    await new FolderOutput(site.asAdapter, "Vault").prepare();
+    assert.deepEqual([...site.files.keys()], []);
+  });
+
+  it("refuses a place with a part that is . or ..", async () => {
+    const adapter = new MemoryAdapter();
+    for (const place of ["Notes/..", "../site", "a/../b", "./site", "site/.", "a/./b"]) {
+      await assert.rejects(new FolderOutput(adapter.asAdapter, place).prepare(), /"\." or "\.\."/, place);
+    }
+    // An archive has a name with .zip at its end, so only a folder above it can be such a part
+    for (const place of ["../site", "a/../b", "./site", "a/./b.zip"]) {
+      await assert.rejects(new ZipOutput(adapter.asAdapter, place, true).prepare(), /"\." or "\.\."/, place);
+    }
+    assert.deepEqual([...adapter.folders], []);
+    // A name that only starts with dots is a name
+    await new FolderOutput(adapter.asAdapter, ".vault-to-site/..site").prepare();
+    await new ZipOutput(adapter.asAdapter, ".out/..", false).prepare();
+    assert.deepEqual([...adapter.folders].sort(), [".out", ".vault-to-site", ".vault-to-site/..site"]);
+  });
+
+  describe("with a file of someone else where an extra file is to go", () => {
+    /** A site that is also something else: a file of the person lies beside it */
+    const site = (extraBefore: string[], others: string[]): MemoryAdapter => {
+      const adapter = new MemoryAdapter();
+      adapter.folders.add("site");
+      adapter.folders.add("site/data");
+      adapter.files.set("site/" + MARKER, marker(extraBefore));
+      adapter.files.set("site/index.html", new Uint8Array(3));
+      adapter.files.set("site/data/index.js", new Uint8Array(3));
+      for (const path of [...extraBefore, ...others]) {
+        for (let at = path.indexOf("/"); at > 0; at = path.indexOf("/", at + 1)) {
+          adapter.folders.add("site/" + path.slice(0, at));
+        }
+        adapter.files.set("site/" + path, new TextEncoder().encode("of the person"));
+      }
+      return adapter;
+    };
+
+    it("stops before anything is taken away, and names the file", async () => {
+      const adapter = site([], ["Resume.pdf"]);
+      const before = [...adapter.files.keys()];
+      await assert.rejects(new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf"]).prepare(), /"site\/Resume\.pdf" is there already, and this plugin did not write it/);
+      assert.deepEqual([...adapter.files.keys()], before);
+      assert.equal(adapter.text("site/Resume.pdf"), "of the person");
+    });
+
+    it("takes the file for the site's own when the marker of the build before names it", async () => {
+      const adapter = site(["Resume.pdf", "old/a.pdf"], ["CNAME"]);
+      const output = new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/b.pdf"]);
+      await output.prepare();
+      assert.deepEqual([...adapter.files.keys()], ["site/CNAME"]);
+      adapter.files.set("Papers/Resume.pdf", new Uint8Array([1, 2, 3]));
+      await output.copy("Papers/Resume.pdf", "Resume.pdf");
+      assert.deepEqual([...(adapter.files.get("site/Resume.pdf") ?? [])], [1, 2, 3]);
+    });
+
+    it("stops for a folder at the path, and for a file where a folder of the path has to be", async () => {
+      const withFolder = site([], ["docs/mine.txt"]);
+      await assert.rejects(new FolderOutput(withFolder.asAdapter, "site", ["docs"]).prepare(), /"site\/docs" is there already/);
+      const withFile = site([], ["docs"]);
+      await assert.rejects(new FolderOutput(withFile.asAdapter, "site", ["docs/2026/a.pdf"]).prepare(), /"site\/docs" is there already.*"docs\/2026\/a\.pdf" cannot be put/);
+      assert.equal(withFile.files.has("site/index.html"), true);
+    });
+
+    it("writes beside what is in the folders of the path, and where an extra file of before was a folder's name", async () => {
+      const adapter = site(["docs"], ["papers/mine.txt"]);
+      await new FolderOutput(adapter.asAdapter, "site", ["docs/a.pdf", "papers/b.pdf"]).prepare();
+      assert.deepEqual([...adapter.files.keys()], ["site/papers/mine.txt"]);
+    });
+
+    it("finds nothing in the way in a folder that is new or empty", async () => {
+      const adapter = new MemoryAdapter();
+      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"]).prepare();
+      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"]).prepare();
+      assert.deepEqual([...adapter.folders], ["site"]);
+    });
   });
 
   it("makes a folder once when many files want it at the same time", async () => {
@@ -361,6 +481,42 @@ describe("ZipOutput", () => {
     assert.deepEqual(adapter.files.get("Backups/vault.zip"), backup);
   });
 
+  it("does not write over a file that came to its place while the site was built", async () => {
+    const adapter = new MemoryAdapter();
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", false);
+    await output.prepare();
+    await output.text("index.html", "new");
+    const theirs = new TextEncoder().encode("put there in the meantime");
+    adapter.files.set("site.zip", theirs);
+    let claims = 0;
+    const claim = (): Promise<void> => {
+      claims++;
+      return Promise.resolve();
+    };
+    await assert.rejects(output.finish(claim), /did not write/);
+    await output.abort();
+    assert.equal(claims, 0, "the place is not claimed");
+    assert.deepEqual([...adapter.files], [["site.zip", theirs]]);
+  });
+
+  it("claims its place right before the archive stands there", async () => {
+    const adapter = new MemoryAdapter();
+    const seen: string[][] = [];
+    const claim = (): Promise<void> => {
+      seen.push([...adapter.files.keys()]);
+      return Promise.resolve();
+    };
+    // A new archive, and one over the archive of a build before
+    for (const mayReplace of [false, true]) {
+      const output = new ZipOutput(adapter.asAdapter, "site.zip", mayReplace);
+      await output.prepare();
+      await output.text("index.html", mayReplace ? "second" : "first");
+      await output.finish(claim);
+    }
+    assert.deepEqual(seen, [["site.zip.v2s-part"], ["site.zip", "site.zip.v2s-part"]]);
+    assert.deepEqual([...unzip(adapter.files.get("site.zip") ?? new Uint8Array(0))], [["index.html", "second"]]);
+  });
+
   it("puts the archive of before back when the new one cannot get its name", async () => {
     const adapter = new MemoryAdapter();
     const before = new TextEncoder().encode("the archive of before");
@@ -381,5 +537,42 @@ describe("ZipOutput", () => {
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
     await output.prepare();
     assert.equal(adapter.files.has("site.zip.v2s-part"), false);
+  });
+});
+
+describe("isSiteArchive", () => {
+  /** An archive as a build writes it: the marker first */
+  const built = async (adapter: MemoryAdapter, path: string, first: [string, string]): Promise<void> => {
+    const output = new ZipOutput(adapter.asAdapter, path, false);
+    await output.prepare();
+    await output.text(first[0], first[1]);
+    await output.text("index.html", "<!doctype html>");
+    await output.finish();
+  };
+
+  it("knows an archive that a build of this plugin wrote by its marker", async () => {
+    const adapter = new MemoryAdapter();
+    await built(adapter, "site.zip", [MARKER, markerText("0.1.0", [])]);
+    assert.equal(await isSiteArchive(adapter.asAdapter, "site.zip"), true);
+    await built(adapter, "out/long.zip", [MARKER, markerText("0.1.0", Array.from({ length: 40 }, (_, i) => `papers/paper ${String(i)}.pdf`))]);
+    assert.equal(await isSiteArchive(adapter.asAdapter, "out/long.zip"), true);
+  });
+
+  it("takes no other file for one", async () => {
+    const adapter = new MemoryAdapter();
+    assert.equal(await isSiteArchive(adapter.asAdapter, "none.zip"), false);
+    adapter.folders.add("folder.zip");
+    assert.equal(await isSiteArchive(adapter.asAdapter, "folder.zip"), false);
+    adapter.files.set("backup.zip", new TextEncoder().encode("a backup of the person, which is no archive at all"));
+    assert.equal(await isSiteArchive(adapter.asAdapter, "backup.zip"), false);
+    adapter.files.set("empty.zip", new Uint8Array(0));
+    assert.equal(await isSiteArchive(adapter.asAdapter, "empty.zip"), false);
+    // An archive of something else, one with the marker not at its start, and one of a vault with the settings of a run
+    await built(adapter, "other.zip", ["notes.txt", "notes"]);
+    assert.equal(await isSiteArchive(adapter.asAdapter, "other.zip"), false);
+    await built(adapter, "later.zip", ["index.html", markerText("0.1.0", [])]);
+    assert.equal(await isSiteArchive(adapter.asAdapter, "later.zip"), false);
+    await built(adapter, "vault.zip", [MARKER, '{"ticks": {"on": [""]}, "format": "zip"}']);
+    assert.equal(await isSiteArchive(adapter.asAdapter, "vault.zip"), false);
   });
 });

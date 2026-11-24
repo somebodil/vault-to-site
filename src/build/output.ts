@@ -1,9 +1,44 @@
 import type { DataAdapter } from "obsidian";
 import { sitePath } from "../select/extra.ts";
-import { ZipWriter } from "./zip.ts";
+import { readFirst, ZipWriter } from "./zip.ts";
 
 /** A file in a site that says the plugin made it */
 export const MARKER = "vault-to-site.json";
+
+/** What the marker says of who made the site */
+const MADE_BY = "vault-to-site";
+
+/**
+ * What a build writes into the marker.
+ *
+ * @param extra the paths of the extra files in the site: the next build takes away those it does not write again
+ */
+export function markerText(version: string, extra: readonly string[]): string {
+  const marker = { plugin: MADE_BY, version, ...(extra.length > 0 ? { extra } : {}) };
+  return JSON.stringify(marker, null, 2) + "\n";
+}
+
+/**
+ * What a marker says, or null for a file that is not a marker of this plugin.
+ *
+ * A file that only has the name of the marker is not one. The settings of a
+ * run by a program are kept under the same name, at the top of a vault: by
+ * the name alone, that vault would pass for a site, and a build would take
+ * away the folders in it that have the names of the folders of a site.
+ */
+export function readMarker(text: string): { extra: unknown[] } | null {
+  let marker: unknown;
+  try {
+    marker = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof marker !== "object" || marker === null || (marker as { plugin?: unknown }).plugin !== MADE_BY) {
+    return null;
+  }
+  const extra = (marker as { extra?: unknown }).extra;
+  return { extra: Array.isArray(extra) ? extra : [] };
+}
 
 /**
  * The names an archive has on the way: while it is written, and while the
@@ -34,8 +69,12 @@ export interface SiteOutput {
   binary(path: string, content: ArrayBuffer): Promise<void>;
   /** Puts a file of the vault into the site */
   copy(from: string, path: string): Promise<void>;
-  /** Ends the writing. Says where the site is, from the root of the vault, and how large. */
-  finish(): Promise<{ place: string; bytes: number }>;
+  /**
+   * Ends the writing. Says where the site is, from the root of the vault, and how large.
+   *
+   * @param claim for a site that takes its place only now, as an archive does: called right before it does, when nothing stands against it
+   */
+  finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }>;
   /** Gives up: what was written so far is not left behind as if it were a site */
   abort(): Promise<void>;
   /** How many writes had to be done a second time */
@@ -111,6 +150,16 @@ function isVaultItself(path: string): boolean {
   return path === "" || path === "/" || path === ".";
 }
 
+/**
+ * True for a path with a part that is `.` or `..`. Such a path is another
+ * place than it reads: `Notes/..` is the vault itself, and `../site` is
+ * outside it. What is asked of a place by its path, as whether it is a site
+ * of the plugin, would be asked of the wrong one.
+ */
+function hasDotPart(path: string): boolean {
+  return path.split("/").some((part) => part === "." || part === "..");
+}
+
 function folderOf(path: string): string {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 }
@@ -122,7 +171,9 @@ function folderOf(path: string): string {
  * never empties a folder of notes, a folder with something in it is only
  * written to when it holds the marker of an earlier build, and even then
  * only what a build writes is removed. A folder that is also something
- * else, as a copy of a repository with its `.git`, keeps the rest.
+ * else, as a copy of a repository with its `.git`, keeps the rest: also a
+ * file at the path of an extra file, which stops the build before anything
+ * is taken away.
  */
 export class FolderOutput implements SiteOutput {
   rewritten = 0;
@@ -132,16 +183,22 @@ export class FolderOutput implements SiteOutput {
   private readonly folders: Folders;
   private readonly adapter: DataAdapter;
   private readonly root: string;
+  private readonly extra: readonly string[];
 
-  constructor(adapter: DataAdapter, root: string) {
+  /** @param extra the paths in the site of the extra files this build will copy */
+  constructor(adapter: DataAdapter, root: string, extra: readonly string[] = []) {
     this.adapter = adapter;
     this.root = root;
+    this.extra = extra;
     this.folders = new Folders(adapter);
   }
 
   async prepare(): Promise<void> {
     if (isVaultItself(this.root)) {
       throw new Error("The site needs a folder of its own, not the vault itself.");
+    }
+    if (hasDotPart(this.root)) {
+      throw new Error(`"${this.root}" has a part that is "." or "..". Write the folder of the site as a plain path from the root of the vault.`);
     }
     const stat = await this.adapter.stat(this.root);
     if (stat?.type === "file") {
@@ -150,10 +207,15 @@ export class FolderOutput implements SiteOutput {
     if (stat !== null) {
       const listed = await this.adapter.list(this.root);
       const isEmpty = listed.files.length === 0 && listed.folders.length === 0;
-      if (!isEmpty && !(await this.adapter.exists(this.root + "/" + MARKER))) {
+      const marker = await this.marker();
+      if (!isEmpty && marker === null) {
         throw new Error(`The folder "${this.root}" has files that are not a site of this plugin. Choose an empty folder or a new name.`);
       }
-      await this.removeExtra();
+      // The extra files of the build before, which its marker names. A path that could not have been an
+      // extra file is left alone, whoever wrote it into the marker.
+      const before = (marker?.extra ?? []).map((written) => (typeof written === "string" ? sitePath(written, SITE_NAMES) : null)).filter((path) => path !== null);
+      await this.refuseTaken(new Set(before));
+      await this.removeExtra(before);
       for (const name of SITE_FOLDERS) {
         if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
           await this.adapter.rmdir(this.root + "/" + name, true);
@@ -181,8 +243,8 @@ export class FolderOutput implements SiteOutput {
   async copy(from: string, path: string): Promise<void> {
     const full = await this.place(path);
     const size = (await this.adapter.stat(from))?.size ?? -1;
-    // The folder was emptied before the build and every file has a name of its own: only a second
-    // attempt finds something at the place
+    // The site of before was taken away, every file has a name of its own, and nothing was found where
+    // an extra file goes: only a second attempt finds something at the place
     let attempts = 0;
     const write = async (): Promise<void> => {
       if (attempts++ > 0 && (await this.adapter.exists(full))) {
@@ -194,6 +256,7 @@ export class FolderOutput implements SiteOutput {
     this.bytes += Math.max(0, size);
   }
 
+  /** The folder was the place of the site from the start, so there is nothing to claim now */
   finish(): Promise<{ place: string; bytes: number }> {
     return Promise.resolve({ place: this.root, bytes: this.bytes });
   }
@@ -212,21 +275,43 @@ export class FolderOutput implements SiteOutput {
     return full;
   }
 
-  /**
-   * Takes away the extra files of the build before, which its marker names,
-   * and the folders that held nothing else. A path that could not have been
-   * an extra file is left alone, whoever wrote it into the marker.
-   */
-  private async removeExtra(): Promise<void> {
-    let named: unknown;
+  /** What the marker in the folder says, or null when there is none that this plugin wrote */
+  private async marker(): Promise<{ extra: unknown[] } | null> {
     try {
-      named = (JSON.parse(await this.adapter.read(this.root + "/" + MARKER)) as { extra?: unknown }).extra;
+      return readMarker(await this.adapter.read(this.root + "/" + MARKER));
     } catch {
-      return;
+      return null;
     }
-    for (const written of Array.isArray(named) ? named : []) {
-      const path = typeof written === "string" ? sitePath(written, SITE_NAMES) : null;
-      if (path === null || (await this.adapter.stat(this.root + "/" + path))?.type !== "file") {
+  }
+
+  /**
+   * Stops the build when something that this plugin did not write is where
+   * an extra file is to go. Asked before anything is taken away or drawn: a
+   * copy onto a file that is there fails on a computer, after all the notes
+   * are drawn and with the words of the file system, and it is not known to
+   * fail on a phone.
+   *
+   * @param before the extra files of the build before: they are taken away, so they are not in the way
+   */
+  private async refuseTaken(before: ReadonlySet<string>): Promise<void> {
+    for (const path of this.extra) {
+      // The path itself, and each folder it lies in: a file where a folder has to be is in the way as well
+      const upTo = path.split("/").map((_part, at, parts) => parts.slice(0, at + 1).join("/"));
+      for (const at of upTo) {
+        const there = await this.adapter.stat(this.root + "/" + at);
+        if (there !== null && (there.type === "file" ? !before.has(at) : at === path)) {
+          throw new Error(
+            `"${this.root}/${at}" is there already, and this plugin did not write it: the file "${path}" cannot be put into the site. Remove it, or give the file another path in the site.`,
+          );
+        }
+      }
+    }
+  }
+
+  /** Takes away the extra files of the build before, and the folders that held nothing else */
+  private async removeExtra(before: readonly string[]): Promise<void> {
+    for (const path of before) {
+      if ((await this.adapter.stat(this.root + "/" + path))?.type !== "file") {
         continue;
       }
       await this.adapter.remove(this.root + "/" + path);
@@ -235,7 +320,9 @@ export class FolderOutput implements SiteOutput {
         if (listed.files.length > 0 || listed.folders.length > 0) {
           break;
         }
-        await this.adapter.rmdir(this.root + "/" + folder, false);
+        // Empty, as was just seen, and still asked to go with what it holds: asked the other way, Obsidian
+        // 1.15 on a computer takes no folder away and fails ("rm returned EISDIR")
+        await this.adapter.rmdir(this.root + "/" + folder, true);
       }
     }
   }
@@ -290,13 +377,15 @@ export class ZipOutput implements SiteOutput {
     if (isVaultItself(this.path.slice(0, -".zip".length))) {
       throw new Error("The archive of the site needs a name.");
     }
+    if (hasDotPart(this.path)) {
+      throw new Error(`"${this.path}" has a part that is "." or "..". Write the archive of the site as a plain path from the root of the vault.`);
+    }
     const there = await this.adapter.stat(this.path);
     if (there?.type === "folder") {
       throw new Error(`"${this.path}" is a folder. Choose another name for the archive.`);
     }
-    if (there !== null && !this.mayReplace) {
-      // An archive of this name that a build did not write is somebody's file, as a backup
-      throw new Error(`"${this.path}" is a file that this plugin did not write. Choose another name for the archive, or remove the file.`);
+    if (there !== null) {
+      this.refuseForeign();
     }
     await new Folders(this.adapter).make(folderOf(this.path));
     await this.removePart();
@@ -315,7 +404,7 @@ export class ZipOutput implements SiteOutput {
     return this.inTurn(async () => this.zip.add(path, new Uint8Array(await this.adapter.readBinary(from))));
   }
 
-  async finish(): Promise<{ place: string; bytes: number }> {
+  async finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }> {
     await this.inTurn(async () => {
       await this.zip.finish();
       await this.flush();
@@ -323,6 +412,11 @@ export class ZipOutput implements SiteOutput {
       // new one has its name: should that fail, the old one is put back.
       const before = this.path + OLD;
       const hadOne = await this.adapter.exists(this.path);
+      if (hadOne) {
+        // Asked again: a file that came to the place while the site was built is somebody's as well
+        this.refuseForeign();
+      }
+      await claim?.();
       if (hadOne) {
         if (await this.adapter.exists(before)) {
           await this.adapter.remove(before);
@@ -355,6 +449,14 @@ export class ZipOutput implements SiteOutput {
     this.broken ??= new Error("The build was given up.");
     await this.last;
     await this.removePart();
+  }
+
+  /** Stops the build when the file at the place of the archive is not one that may give way */
+  private refuseForeign(): void {
+    if (!this.mayReplace) {
+      // An archive of this name that a build did not write is somebody's file, as a backup
+      throw new Error(`"${this.path}" is a file that this plugin did not write. Choose another name for the archive, or remove the file.`);
+    }
   }
 
   private async removePart(): Promise<void> {
@@ -443,6 +545,26 @@ export class ZipOutput implements SiteOutput {
       }
     }
     this.onDisk += buffer.length;
+  }
+}
+
+/**
+ * True when the file at a path is an archive that a build of this plugin
+ * wrote: one that starts with the marker, as every such archive does.
+ *
+ * For where no record of what was written is kept, as in a run by a program:
+ * there the archive of the run before is known by what it holds. The file is
+ * read whole to look at its start, since Obsidian reads no part of a file.
+ */
+export async function isSiteArchive(adapter: DataAdapter, path: string): Promise<boolean> {
+  try {
+    if ((await adapter.stat(path))?.type !== "file") {
+      return false;
+    }
+    const marker = await readFirst(new Uint8Array(await adapter.readBinary(path)), MARKER);
+    return marker !== null && readMarker(new TextDecoder().decode(marker)) !== null;
+  } catch {
+    return false;
   }
 }
 
