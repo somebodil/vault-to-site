@@ -123,7 +123,13 @@
   opacity: 0.45;
 }
 
-.vault-to-site-invalid {
+/*
+ * An input with a rule that does not work. Obsidian gives a line of text its
+ * border by its tag and its kind, also while it is typed in: the class alone
+ * does not win over that, so the input is named as it is there.
+ */
+.modal input[type="text"].vault-to-site-invalid,
+.modal textarea.vault-to-site-invalid {
   border-color: var(--text-error);
 }
 
