@@ -33,11 +33,13 @@ The files of a release are built by GitHub from the commit of its tag, and carry
 Under **Written as** you choose what a build writes, and where, from the root of the vault:
 
 - **Zip archive** (to begin with, `vault-to-site.zip`): one file. The archive of the build before gives way only when the new one is whole: a build that is stopped or fails leaves it as it was. A file with that name that this plugin did not write is not written over: the build is refused, and you choose another name or remove the file. The same holds for a file that comes to that name while the site is built.
-- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it is written to only when it holds a `vault-to-site.json` that this plugin wrote. Any other folder with files in it is refused. So is a build when a file of yours lies where an extra file is to go: remove it, or give the extra file another path. A path with a part that is `.` or `..` is refused, for the folder and for the archive. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
+- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. The site is written into a folder beside its place and moved there at the end, so here too the site of the build before stays as it was when a build is stopped or fails. Moving in, a build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it is written to only when it holds a `vault-to-site.json` that this plugin wrote. Any other folder with files in it is refused. So is a build when a file of yours lies where an extra file is to go: remove it, or give the extra file another path. A path with a part that is `.` or `..` is refused, for the folder and for the archive. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
+
+While a site is built, it lies beside its place under a name that ends in `.v2s-part-` and eight letters and digits that are drawn by chance for each build. What a build that broke off left there, the next build takes away.
 
 What a build has written is never part of a site, also after you give the archive or the folder another name. An archive or a folder that you rename or move away is put aside: the next build writes a new one where the setting says, and leaves the one you put aside alone. When you rename a folder above it, the setting follows. An archive or a folder that you delete is forgotten: a folder of notes that you make under its name later is a folder of notes.
 
-If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip` and `.vault-to-site/` to `.gitignore`.
+If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip`, `.vault-to-site/` and `*.v2s-part-*` to `.gitignore`.
 
 ## Building by a program
 
@@ -73,7 +75,7 @@ The file holds the settings of the dialog under the names `ticks`, `exclude`, `p
 - **No setting is passed over.** A name in the file that is not one of the nine above, or a value of the wrong kind, as a list where text is read, makes the run fail and is named. A run that is given other names and no `settings`, as when the word is written wrong, does not fail: it names them in one line and goes by what is saved.
 - **`width`** is given beside the settings (`--arg width=900`): how wide a note is taken to be, in pixels, for what is drawn to fit it, as a diagram is. To begin with it is 1100, the width of a window on a computer. A width that is not a number from 320 to 10000 makes the run fail.
 - **The run gives back** which notes went in, how many were kept out by each rule, and what the look for names found. The runner prints it as JSON with `--json`.
-- **A note that cannot be drawn makes the run fail,** before the site takes its place. An archive of the run before stays as it was. A folder has lost the site of the run before by then, and is left without `index.html`.
+- **A note that cannot be drawn makes the run fail,** before the site takes its place. The archive or the folder of the run before stays as it was.
 
 ## What the site has
 

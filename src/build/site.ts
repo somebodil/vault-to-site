@@ -152,10 +152,6 @@ async function build(
   const isOwnArchive = settings.format === "zip" && (settings.written.includes(place) || (await isSiteArchive(app.vault.adapter, place)));
   const output: SiteOutput = settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, isOwnArchive) : new FolderOutput(app.vault.adapter, place, extraPaths);
   await output.prepare();
-  if (settings.format === "folder") {
-    // Before the first file: what a build has started to write into a folder is the plugin's, also when the build is stopped
-    await claim(place);
-  }
 
   const total = choice.notes.length + choice.files.length + choice.extra.length + 1;
   let done = 0;
@@ -269,9 +265,8 @@ async function build(
   doc.body.appendChild(stage);
   try {
     try {
-      // The first file of a site: an archive is known as one of the plugin by how it starts (`isSiteArchive`), and
-      // in a folder it is written over the marker of the build before, which is left there until now. The
-      // extra files are named in it: the next build takes away those it does not write again.
+      // The first file of a site: an archive is known as one of the plugin by how it starts (`isSiteArchive`).
+      // The extra files are named in it: the next build takes away those it does not write again.
       await output.text(MARKER, markerText(version, extraPaths));
       await output.text(".nojekyll", "");
       // For the one who gets the site without having built it
@@ -364,9 +359,9 @@ async function build(
     await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();
     progress(total, total, "Writing");
-    // An archive is claimed only now, by the output, when it is about to stand: until then there is nothing
-    // of the plugin at its place, and a file that someone puts there in the meantime is theirs
-    const written = await output.finish(settings.format === "zip" ? () => claim(place) : undefined);
+    // The place is claimed only now, by the output, when the site is about to stand there: until then there is
+    // nothing of this build at its place, and what someone puts there in the meantime is theirs
+    const written = await output.finish(() => claim(place));
     progress(total, total, "");
 
     return {

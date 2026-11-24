@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateRawSync } from "node:zlib";
 import type { DataAdapter } from "obsidian";
-import { FolderOutput, isSiteArchive, MARKER, markerText, readMarker, ZipOutput, zipPath } from "./output.ts";
+import { FolderOutput, isOnTheWay, isSiteArchive, MARKER, markerText, readMarker, wayToken, ZipOutput, zipPath } from "./output.ts";
 
 /** What the outputs use of the adapter of Obsidian, kept in memory */
 class MemoryAdapter {
@@ -39,7 +39,8 @@ class MemoryAdapter {
   }
 
   list(path: string): Promise<{ files: string[]; folders: string[] }> {
-    const isIn = (other: string): boolean => other.startsWith(path + "/") && !other.slice(path.length + 1).includes("/");
+    // The top of the vault is asked for as a slash, and what lies there has no slash in its path
+    const isIn = (other: string): boolean => (path === "/" ? !other.includes("/") : other.startsWith(path + "/") && !other.slice(path.length + 1).includes("/"));
     return Promise.resolve({ files: [...this.files.keys()].filter(isIn), folders: [...this.folders].filter(isIn) });
   }
 
@@ -84,6 +85,26 @@ class MemoryAdapter {
   rename(from: string, to: string): Promise<void> {
     if (this.failRename?.(from, to) === true) {
       return Promise.reject(new Error("the file is busy"));
+    }
+    if (this.files.has(to) || this.folders.has(to)) {
+      // As Obsidian does: nothing is written over by a rename
+      return Promise.reject(new Error("Destination file already exists: " + to));
+    }
+    if (this.folders.has(from)) {
+      // A folder goes with all it holds
+      for (const folder of [...this.folders]) {
+        if (folder === from || folder.startsWith(from + "/")) {
+          this.folders.delete(folder);
+          this.folders.add(to + folder.slice(from.length));
+        }
+      }
+      for (const [path, content] of [...this.files]) {
+        if (path.startsWith(from + "/")) {
+          this.files.delete(path);
+          this.files.set(to + path.slice(from.length), content);
+        }
+      }
+      return Promise.resolve();
     }
     const file = this.files.get(from);
     if (file === undefined) {
@@ -173,17 +194,85 @@ describe("zipPath", () => {
   });
 });
 
+/** What tells the things a build of a test has on the way: a build draws its own by chance */
+const TOKEN = "t0k3n";
+
+describe("the names of a build on the way", () => {
+  it("are known with the letters a build draws by chance, without them, and for what lies inside", () => {
+    for (const path of ["site.zip.v2s-part-k3j9x2a1", "out/site.zip.v2s-old-0a1b2c3d", "_site.v2s-part-t0k3n", "_site.v2s-part-t0k3n/data/n/a.js", "site.zip.v2s-part-t0k3n", "site.zip.v2s-old"]) {
+      assert.equal(isOnTheWay(path), true, path);
+    }
+    for (const path of ["site.zip", "_site/data/n/a.js", "Notes/v2s-part.md", "a.v2s-partner", "a.v2s-part-Not Lower"]) {
+      assert.equal(isOnTheWay(path), false, path);
+    }
+  });
+
+  it("differ from build to build", () => {
+    const drawn = new Set(Array.from({ length: 50 }, () => wayToken()));
+    assert.equal(drawn.size, 50);
+    assert.ok([...drawn].every((token) => /^[a-z0-9]{8}$/.test(token)));
+  });
+});
+
 describe("FolderOutput", () => {
-  it("writes files into folders that it makes", async () => {
+  /** A whole build of a small site: the marker first and the page last, as a build writes them, and between them what a test adds */
+  const build = async (output: FolderOutput, between: () => Promise<void> = () => Promise.resolve()): Promise<void> => {
+    await output.prepare();
+    await output.text(MARKER, markerText("0.2.0", []));
+    await between();
+    await output.text("index.html", "<!doctype html>");
+    await output.finish();
+  };
+
+  it("writes beside its place, and moves the site to its place at the end", async () => {
     const adapter = new MemoryAdapter();
-    const output = new FolderOutput(adapter.asAdapter, "out/site");
+    const output = new FolderOutput(adapter.asAdapter, "out/site", [], TOKEN);
     await output.prepare();
     await output.text("index.html", "<!doctype html>");
     await output.text("data/n/a.js", "한글");
+    assert.deepEqual([...adapter.files.keys()].sort(), ["out/site.v2s-part-t0k3n/data/n/a.js", "out/site.v2s-part-t0k3n/index.html"]);
+    assert.deepEqual(await output.finish(), { place: "out/site", bytes: 15 + 6 });
     assert.equal(adapter.text("out/site/index.html"), "<!doctype html>");
     assert.equal(adapter.text("out/site/data/n/a.js"), "한글");
-    assert.ok(adapter.folders.has("out") && adapter.folders.has("out/site/data/n"));
-    assert.deepEqual(await output.finish(), { place: "out/site", bytes: 15 + 6 });
+    assert.deepEqual([...adapter.files.keys()].sort(), ["out/site/data/n/a.js", "out/site/index.html"]);
+    assert.deepEqual([...adapter.folders].sort(), ["out", "out/site", "out/site/data", "out/site/data/n"]);
+  });
+
+  it("leaves the site of the build before as it was when the build is given up", async () => {
+    const adapter = new MemoryAdapter();
+    for (const folder of ["site", "site/data", "site/data/n"]) {
+      adapter.folders.add(folder);
+    }
+    adapter.files.set("site/" + MARKER, marker());
+    adapter.files.set("site/index.html", new TextEncoder().encode("the page of before"));
+    adapter.files.set("site/data/n/old.js", new Uint8Array(3));
+    const before = new Map(adapter.files);
+    const output = new FolderOutput(adapter.asAdapter, "site", [], TOKEN);
+    await output.prepare();
+    await output.text(MARKER, markerText("0.2.0", []));
+    await output.text("data/n/new.js", "x");
+    assert.deepEqual([...before.keys()].every((path) => adapter.files.get(path) === before.get(path)), true, "while the new one is written");
+    await output.abort();
+    assert.deepEqual([...adapter.files], [...before], "and after the build was given up");
+    assert.deepEqual([...adapter.folders].sort(), ["site", "site/data", "site/data/n"]);
+  });
+
+  it("calls for the claim right before the site of before gives way", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.folders.add("site");
+    adapter.files.set("site/" + MARKER, marker());
+    adapter.files.set("site/index.html", new TextEncoder().encode("the page of before"));
+    const output = new FolderOutput(adapter.asAdapter, "site", [], TOKEN);
+    await output.prepare();
+    await output.text(MARKER, markerText("0.2.0", []));
+    await output.text("index.html", "new");
+    let seen = "";
+    await output.finish(() => {
+      seen = adapter.text("site/index.html");
+      return Promise.resolve();
+    });
+    assert.equal(seen, "the page of before");
+    assert.equal(adapter.text("site/index.html"), "new");
   });
 
   it("takes away the site of an earlier build, and nothing else in its folder", async () => {
@@ -196,9 +285,10 @@ describe("FolderOutput", () => {
     adapter.files.set("site/data/n/old.js", new Uint8Array(3));
     adapter.files.set("site/.git/config", new Uint8Array(4));
     adapter.files.set("site/CNAME", new Uint8Array(5));
-    await new FolderOutput(adapter.asAdapter, "site").prepare();
-    // The marker stays: the build writes it again as its first file
-    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/CNAME", "site/" + MARKER]);
+    await build(new FolderOutput(adapter.asAdapter, "site"));
+    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/CNAME", "site/index.html", "site/" + MARKER]);
+    assert.equal(adapter.text("site/" + MARKER), markerText("0.2.0", []));
+    assert.equal(adapter.text("site/index.html"), "<!doctype html>");
 
     adapter.folders.add("Notes");
     adapter.files.set("Notes/keep.md", new Uint8Array(3));
@@ -216,8 +306,8 @@ describe("FolderOutput", () => {
     for (const file of ["site/Resume.pdf", "site/papers/old/a.pdf", "site/docs/b.pdf", "site/docs/mine.txt", "site/.git/config", "site/CNAME", "outside.pdf"]) {
       adapter.files.set(file, new Uint8Array(3));
     }
-    await new FolderOutput(adapter.asAdapter, "site").prepare();
-    assert.deepEqual([...adapter.files.keys()].sort(), ["outside.pdf", "site/.git/config", "site/CNAME", "site/docs/mine.txt", "site/" + MARKER]);
+    await build(new FolderOutput(adapter.asAdapter, "site"));
+    assert.deepEqual([...adapter.files.keys()].sort(), ["outside.pdf", "site/.git/config", "site/CNAME", "site/docs/mine.txt", "site/index.html", "site/" + MARKER]);
     assert.deepEqual([...adapter.folders].sort(), ["site", "site/.git", "site/docs"]);
   });
 
@@ -246,13 +336,15 @@ describe("FolderOutput", () => {
     for (const text of texts) {
       const adapter = vault(new TextEncoder().encode(text));
       const before = [...adapter.files.keys()];
+      const folders = [...adapter.folders];
       await assert.rejects(new FolderOutput(adapter.asAdapter, "Vault").prepare(), /not a site of this plugin/, text);
       assert.deepEqual([...adapter.files.keys()], before, text);
+      assert.deepEqual([...adapter.folders], folders, text);
     }
     // With a marker of the plugin, the same folder is the site of the build before
     const site = vault(marker());
-    await new FolderOutput(site.asAdapter, "Vault").prepare();
-    assert.deepEqual([...site.files.keys()], ["Vault/" + MARKER]);
+    await build(new FolderOutput(site.asAdapter, "Vault"));
+    assert.deepEqual([...site.files.keys()].sort(), ["Vault/index.html", "Vault/" + MARKER]);
   });
 
   it("refuses a place with a part that is . or ..", async () => {
@@ -266,9 +358,9 @@ describe("FolderOutput", () => {
     }
     assert.deepEqual([...adapter.folders], []);
     // A name that only starts with dots is a name
-    await new FolderOutput(adapter.asAdapter, ".vault-to-site/..site").prepare();
+    await new FolderOutput(adapter.asAdapter, ".vault-to-site/..site", [], TOKEN).prepare();
     await new ZipOutput(adapter.asAdapter, ".out/..", false).prepare();
-    assert.deepEqual([...adapter.folders].sort(), [".out", ".vault-to-site", ".vault-to-site/..site"]);
+    assert.deepEqual([...adapter.folders].sort(), [".out", ".vault-to-site", ".vault-to-site/..site.v2s-part-t0k3n"]);
   });
 
   describe("with a file of someone else where an extra file is to go", () => {
@@ -289,22 +381,37 @@ describe("FolderOutput", () => {
       return adapter;
     };
 
-    it("stops before anything is taken away, and names the file", async () => {
+    it("stops before anything is written or taken away, and names the file", async () => {
       const adapter = site([], ["Resume.pdf"]);
       const before = [...adapter.files.keys()];
+      const folders = [...adapter.folders];
       await assert.rejects(new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf"]).prepare(), /"site\/Resume\.pdf" is there already, and this plugin did not write it/);
       assert.deepEqual([...adapter.files.keys()], before);
+      assert.deepEqual([...adapter.folders], folders);
       assert.equal(adapter.text("site/Resume.pdf"), "of the person");
+    });
+
+    it("stops as well for a file that came to the place while the site was built, and the site of before stays", async () => {
+      const adapter = site([], []);
+      const output = new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf"], TOKEN);
+      await output.prepare();
+      await output.text(MARKER, markerText("0.2.0", ["Resume.pdf"]));
+      await output.text("index.html", "new");
+      adapter.files.set("site/Resume.pdf", new TextEncoder().encode("of the person"));
+      await assert.rejects(output.finish(), /"site\/Resume\.pdf" is there already/);
+      await output.abort();
+      assert.deepEqual([...adapter.files.keys()].sort(), ["site/Resume.pdf", "site/data/index.js", "site/index.html", "site/" + MARKER]);
+      assert.equal(adapter.files.get("site/index.html")?.length, 3, "the page of before");
     });
 
     it("takes the file for the site's own when the marker of the build before names it", async () => {
       const adapter = site(["Resume.pdf", "old/a.pdf"], ["CNAME"]);
-      const output = new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/b.pdf"]);
-      await output.prepare();
-      assert.deepEqual([...adapter.files.keys()], ["site/" + MARKER, "site/CNAME"]);
       adapter.files.set("Papers/Resume.pdf", new Uint8Array([1, 2, 3]));
-      await output.copy("Papers/Resume.pdf", "Resume.pdf");
+      const output = new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/b.pdf"]);
+      await build(output, () => output.copy("Papers/Resume.pdf", "Resume.pdf"));
+      assert.deepEqual([...adapter.files.keys()].sort(), ["Papers/Resume.pdf", "site/CNAME", "site/Resume.pdf", "site/index.html", "site/" + MARKER]);
       assert.deepEqual([...(adapter.files.get("site/Resume.pdf") ?? [])], [1, 2, 3]);
+      assert.deepEqual([...adapter.folders].sort(), ["site"]);
     });
 
     it("stops for a folder at the path, and for a file where a folder of the path has to be", async () => {
@@ -315,17 +422,26 @@ describe("FolderOutput", () => {
       assert.equal(withFile.files.has("site/index.html"), true);
     });
 
-    it("writes beside what is in the folders of the path, and where an extra file of before was a folder's name", async () => {
+    it("puts a file beside what is in the folders of its path, and where an extra file of before was a folder's name", async () => {
       const adapter = site(["docs"], ["papers/mine.txt"]);
-      await new FolderOutput(adapter.asAdapter, "site", ["docs/a.pdf", "papers/b.pdf"]).prepare();
-      assert.deepEqual([...adapter.files.keys()], ["site/" + MARKER, "site/papers/mine.txt"]);
+      adapter.files.set("a.pdf", new Uint8Array([1]));
+      adapter.files.set("b.pdf", new Uint8Array([2]));
+      const output = new FolderOutput(adapter.asAdapter, "site", ["docs/a.pdf", "papers/b.pdf"]);
+      await build(output, async () => {
+        await output.copy("a.pdf", "docs/a.pdf");
+        await output.copy("b.pdf", "papers/b.pdf");
+      });
+      assert.deepEqual([...adapter.files.keys()].sort(), ["a.pdf", "b.pdf", "site/docs/a.pdf", "site/index.html", "site/papers/b.pdf", "site/papers/mine.txt", "site/" + MARKER]);
+      assert.equal(adapter.text("site/papers/mine.txt"), "of the person");
+      assert.deepEqual([...adapter.folders].sort(), ["site", "site/docs", "site/papers"]);
     });
 
     it("finds nothing in the way in a folder that is new or empty", async () => {
       const adapter = new MemoryAdapter();
-      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"]).prepare();
-      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"]).prepare();
-      assert.deepEqual([...adapter.folders], ["site"]);
+      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"], "first").prepare();
+      // The folder of a build that broke off is taken away by the next one
+      await new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/a.pdf"], "second").prepare();
+      assert.deepEqual([...adapter.folders], ["site.v2s-part-second"]);
     });
   });
 
@@ -335,26 +451,26 @@ describe("FolderOutput", () => {
     await output.prepare();
     await Promise.all(Array.from({ length: 32 }, (_, i) => output.text(`data/n/${String(i)}.js`, "x")));
     assert.equal(adapter.files.size, 32);
-    assert.equal(adapter.mkdirs, 3, "site, site/data and site/data/n");
+    assert.equal(adapter.mkdirs, 3, "the folder it writes to, data and data/n in it");
   });
 
   it("writes a file again that was left empty", async () => {
     const adapter = new MemoryAdapter();
-    const output = new FolderOutput(adapter.asAdapter, "site");
+    const output = new FolderOutput(adapter.asAdapter, "site", [], TOKEN);
     await output.prepare();
-    adapter.emptyOnce.add("site/a.js");
+    adapter.emptyOnce.add("site.v2s-part-t0k3n/a.js");
     await output.text("a.js", "content");
-    assert.equal(adapter.text("site/a.js"), "content");
+    assert.equal(adapter.text("site.v2s-part-t0k3n/a.js"), "content");
     assert.equal(adapter.writes, 2, "written, and written again");
 
     adapter.files.set("pic.png", new Uint8Array([1, 2, 3]));
-    adapter.emptyOnce.add("site/assets/pic.png");
+    adapter.emptyOnce.add("site.v2s-part-t0k3n/assets/pic.png");
     await output.copy("pic.png", "assets/pic.png");
-    assert.deepEqual([...(adapter.files.get("site/assets/pic.png") ?? [])], [1, 2, 3]);
+    assert.deepEqual([...(adapter.files.get("site.v2s-part-t0k3n/assets/pic.png") ?? [])], [1, 2, 3]);
     assert.equal(adapter.copies, 2, "copied, and copied again");
   });
 
-  it("takes the page away first and leaves the marker, so that a folder half taken away is no site and is still the plugin's", async () => {
+  it("takes the page away first and never the marker, so that a folder half changed is no site and is still the plugin's", async () => {
     const adapter = new MemoryAdapter();
     for (const folder of ["site", "site/app", "site/data", "site/.git"]) {
       adapter.folders.add(folder);
@@ -363,20 +479,25 @@ describe("FolderOutput", () => {
     for (const file of ["site/index.html", "site/app/viewer.js", "site/data/index.js", "site/README.txt", "site/Resume.pdf", "site/.git/config"]) {
       adapter.files.set(file, new Uint8Array(3));
     }
-    // Taking the folders away breaks off, as when the app is closed or a file is held by another program
+    const broken = new FolderOutput(adapter.asAdapter, "site", [], "broken");
+    await broken.prepare();
+    await broken.text(MARKER, markerText("0.2.0", []));
+    await broken.text("app/viewer.js", "new");
+    await broken.text("index.html", "new");
+    // Taking the folders of before away breaks off, as when the app is closed or a file is held by another program
     const rmdir = adapter.rmdir.bind(adapter);
     adapter.rmdir = () => Promise.reject(new Error("the folder is busy"));
-    await assert.rejects(new FolderOutput(adapter.asAdapter, "site").prepare(), /busy/);
+    await assert.rejects(broken.finish(), /busy/);
+    await broken.abort().catch(() => undefined);
     assert.equal(adapter.files.has("site/index.html"), false);
     assert.equal(readMarker(adapter.text("site/" + MARKER)) !== null, true);
 
-    // The next build takes the folder for the site it is, and its first write is the marker of its own
+    // The next build takes the folder for the site it is, and takes away what the one before left beside it
     adapter.rmdir = rmdir;
-    const output = new FolderOutput(adapter.asAdapter, "site");
-    await output.prepare();
-    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/" + MARKER]);
-    await output.text(MARKER, markerText("0.2.0", []));
+    await build(new FolderOutput(adapter.asAdapter, "site"));
+    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/index.html", "site/" + MARKER]);
     assert.equal(adapter.text("site/" + MARKER), markerText("0.2.0", []));
+    assert.deepEqual([...adapter.folders].sort(), ["site", "site/.git"]);
   });
 });
 
@@ -408,7 +529,7 @@ describe("ZipOutput", () => {
 
   it("keeps every file whole when many are added at the same time", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     const texts = Array.from({ length: 60 }, (_, i) => `note ${String(i)} ` + "x".repeat(i * 37));
     await Promise.all(texts.map((text, i) => output.text(`data/n/${String(i)}.js`, text)));
@@ -422,7 +543,7 @@ describe("ZipOutput", () => {
 
   it("writes a large archive in pieces, and it is the same archive", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", false, 4000);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", false, 4000, TOKEN);
     await output.prepare();
     // Text that does not get much smaller, so that the archive really grows past the size of a piece
     const noise = (seed: number): string => {
@@ -447,7 +568,7 @@ describe("ZipOutput", () => {
   it("writes over the archive of the build before", async () => {
     const adapter = new MemoryAdapter();
     adapter.files.set("site.zip", new Uint8Array(50_000));
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "new");
     await output.finish();
@@ -456,8 +577,8 @@ describe("ZipOutput", () => {
 
   it("writes the archive again when it was left empty", async () => {
     const adapter = new MemoryAdapter();
-    adapter.emptyOnce.add("site.zip.v2s-part");
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    adapter.emptyOnce.add("site.zip.v2s-part-t0k3n");
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "content");
     await output.finish();
@@ -476,20 +597,20 @@ describe("ZipOutput", () => {
     const adapter = new MemoryAdapter();
     const before = new TextEncoder().encode("the archive of before");
     adapter.files.set("site.zip", before);
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, 1000);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, 1000, TOKEN);
     await output.prepare();
     await output.text("data/n/a.js", "x".repeat(50));
     await output.binary("assets/noise.png", new Uint8Array(5000).map((_, i) => (i * 7919) & 0xff).buffer);
     assert.deepEqual(adapter.files.get("site.zip"), before, "still there while the new one is written");
-    assert.ok(adapter.files.has("site.zip.v2s-part"));
+    assert.ok(adapter.files.has("site.zip.v2s-part-t0k3n"));
     await output.abort();
     assert.deepEqual(adapter.files.get("site.zip"), before, "and after the build was given up");
-    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
+    assert.equal(adapter.files.has("site.zip.v2s-part-t0k3n"), false);
   });
 
   it("adds nothing after a failure, and does not end as an archive", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "first");
     await assert.rejects(output.copy("missing.png", "assets/missing.png"), /no such file/);
@@ -497,7 +618,7 @@ describe("ZipOutput", () => {
     await assert.rejects(output.finish(), /no such file/);
     await output.abort();
     assert.equal(adapter.files.has("site.zip"), false);
-    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
+    assert.equal(adapter.files.has("site.zip.v2s-part-t0k3n"), false);
   });
 
   it("does not write over a file that no build of the plugin wrote", async () => {
@@ -511,7 +632,7 @@ describe("ZipOutput", () => {
 
   it("does not write over a file that came to its place while the site was built", async () => {
     const adapter = new MemoryAdapter();
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", false);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", false, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "new");
     const theirs = new TextEncoder().encode("put there in the meantime");
@@ -536,12 +657,12 @@ describe("ZipOutput", () => {
     };
     // A new archive, and one over the archive of a build before
     for (const mayReplace of [false, true]) {
-      const output = new ZipOutput(adapter.asAdapter, "site.zip", mayReplace);
+      const output = new ZipOutput(adapter.asAdapter, "site.zip", mayReplace, undefined, TOKEN);
       await output.prepare();
       await output.text("index.html", mayReplace ? "second" : "first");
       await output.finish(claim);
     }
-    assert.deepEqual(seen, [["site.zip.v2s-part"], ["site.zip", "site.zip.v2s-part"]]);
+    assert.deepEqual(seen, [["site.zip.v2s-part-t0k3n"], ["site.zip", "site.zip.v2s-part-t0k3n"]]);
     assert.deepEqual([...unzip(adapter.files.get("site.zip") ?? new Uint8Array(0))], [["index.html", "second"]]);
   });
 
@@ -549,22 +670,29 @@ describe("ZipOutput", () => {
     const adapter = new MemoryAdapter();
     const before = new TextEncoder().encode("the archive of before");
     adapter.files.set("site.zip", before);
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "new");
-    adapter.failRename = (from) => from === "site.zip.v2s-part";
+    adapter.failRename = (from) => from === "site.zip.v2s-part-t0k3n";
     await assert.rejects(output.finish(), /busy/);
     await output.abort();
     assert.deepEqual(adapter.files.get("site.zip"), before);
     assert.deepEqual([...adapter.files.keys()], ["site.zip"]);
   });
 
-  it("takes away what a build that broke off left behind", async () => {
+  it("takes away what builds that broke off left behind, whatever they drew by chance, and no file of the person", async () => {
     const adapter = new MemoryAdapter();
-    adapter.files.set("site.zip.v2s-part", new Uint8Array(100));
-    const output = new ZipOutput(adapter.asAdapter, "site.zip", true);
+    for (const rest of ["site.zip.v2s-part-0ld0ne00", "site.zip.v2s-part", "site.zip.v2s-old-0ld0ne00", "site.zip.v2s-partner", "other.zip.v2s-part-0ld0ne00", "notes.md"]) {
+      adapter.files.set(rest, new Uint8Array(100));
+    }
+    const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
-    assert.equal(adapter.files.has("site.zip.v2s-part"), false);
+    // What was written and not finished goes at once. An archive that was set aside may be the only one there is: it stays for now.
+    assert.deepEqual([...adapter.files.keys()].sort(), ["notes.md", "other.zip.v2s-part-0ld0ne00", "site.zip.v2s-old-0ld0ne00", "site.zip.v2s-partner"]);
+    await output.text("index.html", "new");
+    await output.finish();
+    // The new one stands: the one that was set aside is not needed any more
+    assert.deepEqual([...adapter.files.keys()].sort(), ["notes.md", "other.zip.v2s-part-0ld0ne00", "site.zip", "site.zip.v2s-partner"]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { OLD, PART, zipPath } from "./build/output.ts";
+import { isOnTheWay, zipPath } from "./build/output.ts";
 import { renameExtra } from "./select/extra.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
 import { isAtOrUnder, movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
@@ -89,7 +89,7 @@ export function placeOf(settings: Settings, normal: (path: string) => string = (
  * @param normal makes a path as it is written in a setting into the form the vault has
  */
 export function followRename(settings: Settings, from: string, to: string, isOntoGone = false, normal: (path: string) => string = (path) => path): Settings {
-  if ([from, to].some((path) => path.endsWith(PART) || path.endsWith(OLD))) {
+  if ([from, to].some(isOnTheWay)) {
     return settings;
   }
   const moved = (path: string): string => movedPath(path, from, to);

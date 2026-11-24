@@ -5,7 +5,7 @@ import { planExtra, type KindOfPath } from "../select/extra.ts";
 import { parsePropertyRules, propertyProblems } from "../select/properties.ts";
 import { isAtOrUnder } from "../select/ticks.ts";
 import { placeOf, type Settings } from "../settings.ts";
-import { OLD, PART, SITE_NAMES } from "./output.ts";
+import { isOnTheWay, SITE_NAMES } from "./output.ts";
 
 /** Files that Obsidian draws from what is in them. See `VaultFile.undrawn`. */
 const UNDRAWN = new Set(["canvas", "base"]);
@@ -15,8 +15,8 @@ export function readVault(app: App, settings: Settings): VaultFile[] {
   // Where the next build writes, and where builds have written. Not the place of the other format: a name
   // typed there and never built to may be a folder of notes.
   const own = [placeOf(settings, normalizePath), ...settings.written.map((path) => normalizePath(path))];
-  // An archive has another name while it is written, and one that broke off may still lie there
-  const isOwn = (path: string): boolean => path.endsWith(PART) || path.endsWith(OLD) || own.some((mine) => isAtOrUnder(path, mine));
+  // A site has another name while it is written, and one that broke off may still lie there
+  const isOwn = (path: string): boolean => isOnTheWay(path) || own.some((mine) => isAtOrUnder(path, mine));
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];
   for (const file of app.vault.getFiles()) {

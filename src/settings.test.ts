@@ -130,6 +130,9 @@ describe("followRename", () => {
     assert.equal(followRename(settings, "out/site.zip", "out/site.zip.v2s-old"), settings);
     assert.equal(followRename(settings, "out/site.zip.v2s-part", "out/site.zip"), settings);
     assert.equal(followRename(settings, "out/site.zip.v2s-old", "out/site.zip"), settings);
+    // With the letters a build draws by chance, and for what lies in a folder on the way
+    assert.equal(followRename(settings, "out/site.zip.v2s-part-k3j9x2a1", "out/site.zip"), settings);
+    assert.equal(followRename(settings, "site.v2s-part-k3j9x2a1/data", "site/data"), settings);
   });
 
   it("follows a rename to a name that only looks like one of those", () => {

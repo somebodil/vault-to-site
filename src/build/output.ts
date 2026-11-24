@@ -41,13 +41,29 @@ export function readMarker(text: string): { extra: unknown[] } | null {
 }
 
 /**
- * The names an archive has on the way: while it is written, and while the
- * one before gives way to it. Nobody gives a file of their own such a name,
- * so a file with one is a rest of a build, and a rename to or from one is a
- * step of a build.
+ * The names a site has on the way: while it is written, and while the one
+ * before gives way to it. After each comes a hyphen and a few letters and
+ * digits that are drawn by chance for every build (`wayToken`), so that what
+ * one build has on the way is never taken for that of another, and never
+ * lies where a file of the person does. Nobody gives a file of their own
+ * such a name, so a file or folder with one is a rest of a build, and a
+ * rename to or from one is a step of a build.
  */
 export const PART = ".v2s-part";
 export const OLD = ".v2s-old";
+
+/** The ending of what a build has on the way, also as builds of before wrote it, without the letters drawn by chance */
+const ON_THE_WAY = /\.v2s-(?:part|old)(?:-[a-z0-9]+)?(?:\/|$)/;
+
+/** True for what a build has on the way, and for every path inside it */
+export function isOnTheWay(path: string): boolean {
+  return ON_THE_WAY.test(path);
+}
+
+/** Eight letters and digits, drawn by chance: what tells the things one build has on the way from those of every other */
+export function wayToken(): string {
+  return Math.random().toString(36).slice(2, 10).padEnd(8, "0");
+}
 
 /** What a build puts at the top of a site: only these, and the extra files the marker names, are removed before a build */
 const SITE_FILES = [MARKER, "index.html", ".nojekyll", "README.txt"];
@@ -72,10 +88,10 @@ export interface SiteOutput {
   /**
    * Ends the writing. Says where the site is, from the root of the vault, and how large.
    *
-   * @param claim for a site that takes its place only now, as an archive does: called right before it does, when nothing stands against it
+   * @param claim called right before the site takes its place, when nothing stands against it
    */
   finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }>;
-  /** Gives up: what was written so far is not left behind as if it were a site */
+  /** Gives up: what was written so far is taken away, and the site of the build before stays as it was */
   abort(): Promise<void>;
   /** How many files of the vault may be copied at a time */
   readonly copiesAtATime: number;
@@ -161,16 +177,47 @@ function folderOf(path: string): string {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 }
 
+function nameOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * What builds that broke off left beside a place: the files and folders
+ * that have the name of the place and after it an ending of a build on the
+ * way. Their names differ from build to build, so they are found by looking.
+ */
+async function leftBehind(adapter: DataAdapter, place: string, ending: string): Promise<{ files: string[]; folders: string[] }> {
+  const above = folderOf(place);
+  let listed: { files: string[]; folders: string[] };
+  try {
+    listed = await adapter.list(above === "" ? "/" : above);
+  } catch {
+    // No folder above the place yet: nothing was left there
+    return { files: [], folders: [] };
+  }
+  const start = place + ending;
+  const isRest = (path: string): boolean => {
+    const plain = path.replace(/^\/+/, "");
+    return plain.startsWith(start) && /^(?:-[a-z0-9]+)?$/.test(plain.slice(start.length));
+  };
+  return { files: listed.files.filter(isRest).map((path) => path.replace(/^\/+/, "")), folders: listed.folders.filter(isRest).map((path) => path.replace(/^\/+/, "")) };
+}
+
 /**
  * A site as a folder.
  *
- * A build takes away the site of the build before. So that a wrong setting
- * never empties a folder of notes, a folder with something in it is only
- * written to when it holds the marker of an earlier build, and even then
- * only what a build writes is removed. A folder that is also something
- * else, as a copy of a repository with its `.git`, keeps the rest: also a
- * file at the path of an extra file, which stops the build before anything
- * is taken away.
+ * The site is written into a folder beside its place and takes its place at
+ * the very end. So the site of the build before is there until the new one
+ * is whole, and a build that is stopped or fails leaves it as it was.
+ *
+ * Taking its place, a build takes away the site of the build before. So
+ * that a wrong setting never empties a folder of notes, a folder with
+ * something in it is only written to when it holds the marker of an earlier
+ * build, and even then only what a build writes is removed. A folder that
+ * is also something else, as a copy of a repository with its `.git`, keeps
+ * the rest: also a file at the path of an extra file, which stops the build
+ * before anything is taken away. That is why the new site is moved in piece
+ * by piece, and the folder is not changed for another as a whole.
  */
 export class FolderOutput implements SiteOutput {
   /** Each copy is a file of its own, and nothing of it is held in memory */
@@ -179,17 +226,40 @@ export class FolderOutput implements SiteOutput {
   private readonly folders: Folders;
   private readonly adapter: DataAdapter;
   private readonly root: string;
+  /** Where the site is written until it is whole: a folder beside its place */
+  private readonly work: string;
   private readonly extra: readonly string[];
+  /** True from the moment the site of before gives way: from then on the place is no whole site until the new one stands */
+  private isMovingIn = false;
 
-  /** @param extra the paths in the site of the extra files this build will copy */
-  constructor(adapter: DataAdapter, root: string, extra: readonly string[] = []) {
+  /**
+   * @param extra the paths in the site of the extra files this build will copy
+   * @param token what the folder the site is written to is told by: see `wayToken`
+   */
+  constructor(adapter: DataAdapter, root: string, extra: readonly string[] = [], token = wayToken()) {
     this.adapter = adapter;
     this.root = root;
+    this.work = root + PART + "-" + token;
     this.extra = extra;
     this.folders = new Folders(adapter);
   }
 
+  /** Nothing of the place is touched here: it is only asked whether the site may go there */
   async prepare(): Promise<void> {
+    await this.mayGoThere();
+    // What a build that broke off wrote beside the place
+    for (const rest of (await leftBehind(this.adapter, this.root, PART)).folders) {
+      await this.adapter.rmdir(rest, true);
+    }
+    await this.folders.make(this.work);
+  }
+
+  /**
+   * Throws when the place holds something that is not a site of the plugin.
+   *
+   * @returns the extra files of the build before, which its marker names: they give way with the site
+   */
+  private async mayGoThere(): Promise<string[]> {
     if (isVaultItself(this.root)) {
       throw new Error("The site needs a folder of its own, not the vault itself.");
     }
@@ -200,38 +270,20 @@ export class FolderOutput implements SiteOutput {
     if (stat?.type === "file") {
       throw new Error(`"${this.root}" is a file. Choose a folder for the site.`);
     }
-    if (stat !== null) {
-      const listed = await this.adapter.list(this.root);
-      const isEmpty = listed.files.length === 0 && listed.folders.length === 0;
-      const marker = await this.marker();
-      if (!isEmpty && marker === null) {
-        throw new Error(`The folder "${this.root}" has files that are not a site of this plugin. Choose an empty folder or a new name.`);
-      }
-      // The extra files of the build before, which its marker names. A path that could not have been an
-      // extra file is left alone, whoever wrote it into the marker.
-      const before = (marker?.extra ?? []).map((written) => (typeof written === "string" ? sitePath(written, SITE_NAMES) : null)).filter((path) => path !== null);
-      await this.refuseTaken(new Set(before));
-      // The page goes first: without it a folder does not pass for a site, and taking the rest away can
-      // break off half way, as when the app is closed
-      if (await this.adapter.exists(this.root + "/index.html")) {
-        await this.adapter.remove(this.root + "/index.html");
-      }
-      await this.removeExtra(before);
-      for (const name of SITE_FOLDERS) {
-        if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
-          await this.adapter.rmdir(this.root + "/" + name, true);
-        }
-      }
-      for (const name of SITE_FILES) {
-        // The marker stays: a build writes it first of all, over the one that is there. Taken away here, a
-        // folder that still holds other files would be without it for a moment, and a build that broke off
-        // in that moment would leave a folder that every later build refuses.
-        if (name !== MARKER && (await this.adapter.exists(this.root + "/" + name))) {
-          await this.adapter.remove(this.root + "/" + name);
-        }
-      }
+    if (stat === null) {
+      return [];
     }
-    await this.folders.make(this.root);
+    const listed = await this.adapter.list(this.root);
+    const isEmpty = listed.files.length === 0 && listed.folders.length === 0;
+    const marker = await this.marker();
+    if (!isEmpty && marker === null) {
+      throw new Error(`The folder "${this.root}" has files that are not a site of this plugin. Choose an empty folder or a new name.`);
+    }
+    // The extra files of the build before, which its marker names. A path that could not have been an
+    // extra file is left alone, whoever wrote it into the marker.
+    const before = (marker?.extra ?? []).map((written) => (typeof written === "string" ? sitePath(written, SITE_NAMES) : null)).filter((path) => path !== null);
+    await this.refuseTaken(new Set(before));
+    return before;
   }
 
   async text(path: string, content: string): Promise<void> {
@@ -247,8 +299,8 @@ export class FolderOutput implements SiteOutput {
   async copy(from: string, path: string): Promise<void> {
     const full = await this.place(path);
     const size = (await this.adapter.stat(from))?.size ?? -1;
-    // The site of before was taken away, every file has a name of its own, and nothing was found where
-    // an extra file goes: only a second attempt finds something at the place
+    // The folder the site is written to is new, and every file has a name of its own: only a second
+    // attempt finds something at the place
     let attempts = 0;
     const write = async (): Promise<void> => {
       if (attempts++ > 0 && (await this.adapter.exists(full))) {
@@ -260,21 +312,96 @@ export class FolderOutput implements SiteOutput {
     this.bytes += Math.max(0, size);
   }
 
-  /** The folder was the place of the site from the start, so there is nothing to claim now */
-  finish(): Promise<{ place: string; bytes: number }> {
-    return Promise.resolve({ place: this.root, bytes: this.bytes });
+  /**
+   * The site is whole: only now does the site of the build before give way,
+   * and the new one is moved to its place.
+   *
+   * The page goes first and comes last. Without it a folder does not pass
+   * for a site, so what a build that breaks off in these few steps leaves
+   * is no site, and with the marker in it, which is written over and never
+   * taken away, the next build takes the folder for the plugin's.
+   */
+  async finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }> {
+    // Asked again: something may have come to the place while the site was built, and it is somebody's as well
+    const before = await this.mayGoThere();
+    await claim?.();
+    await this.folders.make(this.root);
+    this.isMovingIn = true;
+    if (await this.adapter.exists(this.root + "/index.html")) {
+      await this.adapter.remove(this.root + "/index.html");
+    }
+    await this.removeExtra(before);
+    for (const name of SITE_FOLDERS) {
+      if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
+        await this.adapter.rmdir(this.root + "/" + name, true);
+      }
+    }
+    for (const name of SITE_FILES) {
+      if (name !== MARKER && (await this.adapter.exists(this.root + "/" + name))) {
+        await this.adapter.remove(this.root + "/" + name);
+      }
+    }
+    // The marker is written over the one that is there: moved, the folder would be without one for a moment
+    if (await this.adapter.exists(this.work + "/" + MARKER)) {
+      const marker = await this.adapter.readBinary(this.work + "/" + MARKER);
+      const full = this.root + "/" + MARKER;
+      await checked(this.adapter, full, marker.byteLength, () => this.adapter.writeBinary(full, marker));
+    }
+    await this.moveIn(this.work, this.root, new Set([MARKER, "index.html"]));
+    if (await this.adapter.exists(this.work + "/index.html")) {
+      await this.adapter.rename(this.work + "/index.html", this.root + "/index.html");
+    }
+    this.isMovingIn = false;
+    // What is left of the folder the site was written to. Should it stay, the next build takes it away.
+    await this.adapter.rmdir(this.work, true).catch(() => undefined);
+    return { place: this.root, bytes: this.bytes };
   }
 
-  /** What was written stays, with its marker: the next build takes it away. Without index.html it does not pass for a site. */
+  /**
+   * Moves what a folder holds into another. A folder that is not there yet
+   * is moved as a whole, which is one step however much it holds; one that
+   * is there, as a folder of the person that an extra file goes into, gets
+   * what is inside, piece by piece.
+   *
+   * @param skip names of files at the top that are not moved here
+   */
+  private async moveIn(from: string, to: string, skip: ReadonlySet<string> = new Set()): Promise<void> {
+    const listed = await this.adapter.list(from);
+    for (const folder of listed.folders) {
+      const name = nameOf(folder);
+      if ((await this.adapter.stat(to + "/" + name)) === null) {
+        await this.adapter.rename(from + "/" + name, to + "/" + name);
+      } else {
+        await this.moveIn(from + "/" + name, to + "/" + name);
+      }
+    }
+    for (const file of listed.files) {
+      const name = nameOf(file);
+      if (!skip.has(name)) {
+        await this.adapter.rename(from + "/" + name, to + "/" + name);
+      }
+    }
+  }
+
+  /**
+   * Gives up. What was written beside the place is taken away, and the site
+   * of the build before stays as it was. Only when the new site was on its
+   * way in already is the place left without its page, so that it does not
+   * pass for a site: with its marker, the next build takes it.
+   */
   async abort(): Promise<void> {
+    // The page first: should taking the folder away fail, the place still does not pass for a site
     const index = this.root + "/index.html";
-    if (await this.adapter.exists(index)) {
+    if (this.isMovingIn && (await this.adapter.exists(index))) {
       await this.adapter.remove(index);
+    }
+    if ((await this.adapter.stat(this.work))?.type === "folder") {
+      await this.adapter.rmdir(this.work, true);
     }
   }
 
   private async place(path: string): Promise<string> {
-    const full = this.root + "/" + path;
+    const full = this.work + "/" + path;
     await this.folders.make(folderOf(full));
     return full;
   }
@@ -351,6 +478,8 @@ export class ZipOutput implements SiteOutput {
   private readonly path: string;
   /** Where the archive is written until it is whole */
   private readonly part: string;
+  /** Where the archive of the build before is set aside while the new one gets its name */
+  private readonly before: string;
   private readonly zip: ZipWriter;
   private pieces: Uint8Array[] = [];
   /** Bytes in `pieces` */
@@ -367,10 +496,11 @@ export class ZipOutput implements SiteOutput {
   private readonly mayReplace: boolean;
 
   /** @param mayReplace true when the file at the path, if there is one, was written by a build of this plugin */
-  constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024) {
+  constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024, token = wayToken()) {
     this.adapter = adapter;
     this.path = zipPath(path);
-    this.part = this.path + PART;
+    this.part = this.path + PART + "-" + token;
+    this.before = this.path + OLD + "-" + token;
     this.mayReplace = mayReplace;
     this.pieceSize = pieceSize;
     this.zip = new ZipWriter((piece) => this.take(piece));
@@ -391,7 +521,10 @@ export class ZipOutput implements SiteOutput {
       this.refuseForeign();
     }
     await new Folders(this.adapter).make(folderOf(this.path));
-    await this.removePart();
+    // What a build that broke off wrote beside the place
+    for (const rest of (await leftBehind(this.adapter, this.path, PART)).files) {
+      await this.adapter.remove(rest);
+    }
   }
 
   text(path: string, content: string): Promise<void> {
@@ -413,7 +546,7 @@ export class ZipOutput implements SiteOutput {
       await this.flush();
       // Only now does the archive of the build before give way. It is set aside, not removed, until the
       // new one has its name: should that fail, the old one is put back.
-      const before = this.path + OLD;
+      const before = this.before;
       const hadOne = await this.adapter.exists(this.path);
       if (hadOne) {
         // Asked again: a file that came to the place while the site was built is somebody's as well
@@ -443,6 +576,11 @@ export class ZipOutput implements SiteOutput {
       }
       if (hadOne) {
         await this.adapter.remove(before);
+      }
+      // An archive that a build set aside and could not put back, when it broke off between the two steps:
+      // the new one stands now, and the old one is not needed any more
+      for (const rest of (await leftBehind(this.adapter, this.path, OLD)).files) {
+        await this.adapter.remove(rest).catch(() => undefined);
       }
     });
     return { place: this.path, bytes: this.onDisk };
