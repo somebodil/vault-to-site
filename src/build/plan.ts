@@ -15,7 +15,7 @@ export function readVault(app: App, settings: Settings): VaultFile[] {
   // Where the next build writes, and where builds have written. Not the place of the other format: a name
   // typed there and never built to may be a folder of notes.
   const own = [placeOf(settings, normalizePath), ...settings.written.map((path) => normalizePath(path))];
-  // A site has another name while it is written, and one that broke off may still lie there
+  // An archive has another name for the moment it gives way, and one that a build set aside may still lie there
   const isOwn = (path: string): boolean => isOnTheWay(path) || own.some((mine) => isAtOrUnder(path, mine));
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];

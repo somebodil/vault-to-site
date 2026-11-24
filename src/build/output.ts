@@ -41,21 +41,40 @@ export function readMarker(text: string): { extra: unknown[] } | null {
 }
 
 /**
- * The names a site has on the way: while it is written, and while the one
- * before gives way to it. After each comes a hyphen and a few letters and
- * digits that are drawn by chance for every build (`wayToken`), so that what
- * one build has on the way is never taken for that of another, and never
- * lies where a file of the person does. Nobody gives a file of their own
- * such a name, so a file or folder with one is a rest of a build, and a
- * rename to or from one is a step of a build.
+ * The folder at the top of the vault where a site lies while it is built.
+ *
+ * Its name starts with a dot: Obsidian shows no such folder and does not
+ * read what is in it, so a site on the way never turns up among the files
+ * of the vault. It is the plugin's alone. Every build empties it before it
+ * starts, so what a build that broke off left there is gone with the next
+ * one, whatever it was, and nothing has to be told from a file of the
+ * person by its name. In it, a build writes to a folder of its own, named
+ * by a few letters and digits that are drawn by chance (`wayToken`): a
+ * build that another one emptied the folder under fails, and never writes
+ * into the site of the other.
+ *
+ * It lies in the vault because a plugin reaches nothing else on a phone,
+ * and because a site that is whole is moved to its place, which is one
+ * step only on the same disk.
  */
-export const PART = ".v2s-part";
+export const WORK = ".vault-to-site-cache";
+
+/**
+ * The name an archive has for the moment in which the new one takes its
+ * place: its own, this, a hyphen and what `wayToken` drew. It is set aside
+ * beside its place and not into `WORK`, so that Obsidian sees a rename, and
+ * not an archive that the person took away.
+ */
 export const OLD = ".v2s-old";
 
-/** The ending of what a build has on the way, also as builds of before wrote it, without the letters drawn by chance */
+/**
+ * The ending of an archive that is set aside, and of what builds up to
+ * 0.1.2 had beside the place while they wrote. Nobody gives a file of their
+ * own such a name, so a rename to or from one is a step of a build.
+ */
 const ON_THE_WAY = /\.v2s-(?:part|old)(?:-[a-z0-9]+)?(?:\/|$)/;
 
-/** True for what a build has on the way, and for every path inside it */
+/** True for what a build has beside a place on the way, and for every path inside it */
 export function isOnTheWay(path: string): boolean {
   return ON_THE_WAY.test(path);
 }
@@ -63,6 +82,72 @@ export function isOnTheWay(path: string): boolean {
 /** Eight letters and digits, drawn by chance: what tells the things one build has on the way from those of every other */
 export function wayToken(): string {
   return Math.random().toString(36).slice(2, 10).padEnd(8, "0");
+}
+
+/** True for the folder builds write in, and for every path inside it. A disk may take capital letters for small ones. */
+function isInWork(path: string): boolean {
+  const small = path.toLowerCase();
+  return small === WORK || small.startsWith(WORK + "/");
+}
+
+/**
+ * Empties the folder builds write in. What cannot be taken away now, as a
+ * file that another program holds, stays for the next build: this one
+ * writes to a folder of its own beside it.
+ */
+async function emptyWork(adapter: DataAdapter): Promise<void> {
+  const there = await adapter.stat(WORK);
+  if (there?.type === "file") {
+    throw new Error(`"${WORK}" is a file. A site lies in a folder of that name while it is built: remove the file, or give it another name.`);
+  }
+  if (there !== null) {
+    await adapter.rmdir(WORK, true).catch(() => undefined);
+  }
+}
+
+/** Takes away the folder a build wrote in, and the folder above it when nothing else is in it */
+async function leaveWork(adapter: DataAdapter, mine: string): Promise<void> {
+  if ((await adapter.stat(mine))?.type === "folder") {
+    await adapter.rmdir(mine, true);
+  }
+  if ((await adapter.stat(WORK))?.type !== "folder") {
+    return;
+  }
+  const listed = await adapter.list(WORK);
+  if (listed.files.length === 0 && listed.folders.length === 0) {
+    // Empty, and still asked to go with what it holds: see `removeExtra`
+    await adapter.rmdir(WORK, true);
+  }
+}
+
+/**
+ * Moves a file to a place where nothing is. A file that cannot be moved, as
+ * one that would go onto another disk through a link, is copied there, and
+ * the first one is taken away.
+ */
+async function move(adapter: DataAdapter, from: string, to: string): Promise<void> {
+  try {
+    await adapter.rename(from, to);
+  } catch (error) {
+    // Something is at the place: that is why, and a copy would not be the answer
+    if (await adapter.exists(to)) {
+      throw error;
+    }
+    try {
+      const size = (await adapter.stat(from))?.size;
+      await adapter.copy(from, to);
+      if ((await adapter.stat(to))?.size !== size) {
+        throw new Error("the copy is not whole");
+      }
+    } catch {
+      // Half a copy is this build's: nothing was there. The first failure is the one to tell of.
+      if (await adapter.exists(to).catch(() => false)) {
+        await adapter.remove(to).catch(() => undefined);
+      }
+      throw error;
+    }
+    await adapter.remove(from);
+  }
 }
 
 /** What a build puts at the top of a site: only these, and the extra files the marker names, are removed before a build */
@@ -182,31 +267,28 @@ function nameOf(path: string): string {
 }
 
 /**
- * What builds that broke off left beside a place: the files and folders
- * that have the name of the place and after it an ending of a build on the
- * way. Their names differ from build to build, so they are found by looking.
+ * The archives that builds set aside beside a place and did not take away,
+ * as they broke off between two steps: the files that have the name of the
+ * place and after it the ending of one set aside. Their names differ from
+ * build to build, so they are found by looking.
  */
-async function leftBehind(adapter: DataAdapter, place: string, ending: string): Promise<{ files: string[]; folders: string[] }> {
+async function setAside(adapter: DataAdapter, place: string): Promise<string[]> {
   const above = folderOf(place);
   let listed: { files: string[]; folders: string[] };
   try {
     listed = await adapter.list(above === "" ? "/" : above);
   } catch {
     // No folder above the place yet: nothing was left there
-    return { files: [], folders: [] };
+    return [];
   }
-  const start = place + ending;
-  const isRest = (path: string): boolean => {
-    const plain = path.replace(/^\/+/, "");
-    return plain.startsWith(start) && /^(?:-[a-z0-9]+)?$/.test(plain.slice(start.length));
-  };
-  return { files: listed.files.filter(isRest).map((path) => path.replace(/^\/+/, "")), folders: listed.folders.filter(isRest).map((path) => path.replace(/^\/+/, "")) };
+  const start = place + OLD;
+  return listed.files.map((path) => path.replace(/^\/+/, "")).filter((path) => path.startsWith(start) && /^(?:-[a-z0-9]+)?$/.test(path.slice(start.length)));
 }
 
 /**
  * A site as a folder.
  *
- * The site is written into a folder beside its place and takes its place at
+ * The site is written into a folder in `WORK` and takes its place at
  * the very end. So the site of the build before is there until the new one
  * is whole, and a build that is stopped or fails leaves it as it was.
  *
@@ -226,11 +308,13 @@ export class FolderOutput implements SiteOutput {
   private readonly folders: Folders;
   private readonly adapter: DataAdapter;
   private readonly root: string;
-  /** Where the site is written until it is whole: a folder beside its place */
+  /** Where the site is written until it is whole: a folder of this build in `WORK` */
   private readonly work: string;
   private readonly extra: readonly string[];
   /** True from the moment the site of before gives way: from then on the place is no whole site until the new one stands */
   private isMovingIn = false;
+  /** The first file this build wrote: as long as it is there, the folder the site is written to is still the one of this build */
+  private first: string | null = null;
 
   /**
    * @param extra the paths in the site of the extra files this build will copy
@@ -239,7 +323,7 @@ export class FolderOutput implements SiteOutput {
   constructor(adapter: DataAdapter, root: string, extra: readonly string[] = [], token = wayToken()) {
     this.adapter = adapter;
     this.root = root;
-    this.work = root + PART + "-" + token;
+    this.work = WORK + "/" + token;
     this.extra = extra;
     this.folders = new Folders(adapter);
   }
@@ -247,10 +331,7 @@ export class FolderOutput implements SiteOutput {
   /** Nothing of the place is touched here: it is only asked whether the site may go there */
   async prepare(): Promise<void> {
     await this.mayGoThere();
-    // What a build that broke off wrote beside the place
-    for (const rest of (await leftBehind(this.adapter, this.root, PART)).folders) {
-      await this.adapter.rmdir(rest, true);
-    }
+    await emptyWork(this.adapter);
     await this.folders.make(this.work);
   }
 
@@ -265,6 +346,9 @@ export class FolderOutput implements SiteOutput {
     }
     if (hasDotPart(this.root)) {
       throw new Error(`"${this.root}" has a part that is "." or "..". Write the folder of the site as a plain path from the root of the vault.`);
+    }
+    if (isInWork(this.root)) {
+      throw new Error(`"${WORK}" is where a site lies while it is built, and it is emptied by every build. Choose another folder for the site.`);
     }
     const stat = await this.adapter.stat(this.root);
     if (stat?.type === "file") {
@@ -322,6 +406,11 @@ export class FolderOutput implements SiteOutput {
    * taken away, the next build takes the folder for the plugin's.
    */
   async finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }> {
+    // Another Obsidian that builds in the same vault empties the folder under this build. What was written
+    // after that may well be there, and would be half a site.
+    if (this.first !== null && !(await this.adapter.exists(this.first))) {
+      throw new Error(`"${WORK}" was emptied while the site was built, as by another build in this vault that started later. Build again.`);
+    }
     // Asked again: something may have come to the place while the site was built, and it is somebody's as well
     const before = await this.mayGoThere();
     await claim?.();
@@ -349,19 +438,20 @@ export class FolderOutput implements SiteOutput {
     }
     await this.moveIn(this.work, this.root, new Set([MARKER, "index.html"]));
     if (await this.adapter.exists(this.work + "/index.html")) {
-      await this.adapter.rename(this.work + "/index.html", this.root + "/index.html");
+      await move(this.adapter, this.work + "/index.html", this.root + "/index.html");
     }
     this.isMovingIn = false;
     // What is left of the folder the site was written to. Should it stay, the next build takes it away.
-    await this.adapter.rmdir(this.work, true).catch(() => undefined);
+    await leaveWork(this.adapter, this.work).catch(() => undefined);
     return { place: this.root, bytes: this.bytes };
   }
 
   /**
    * Moves what a folder holds into another. A folder that is not there yet
-   * is moved as a whole, which is one step however much it holds; one that
+   * is moved as a whole, which is one step however much it holds. One that
    * is there, as a folder of the person that an extra file goes into, gets
-   * what is inside, piece by piece.
+   * what is inside, piece by piece: so does one that cannot be moved as a
+   * whole, as onto another disk through a link.
    *
    * @param skip names of files at the top that are not moved here
    */
@@ -369,22 +459,29 @@ export class FolderOutput implements SiteOutput {
     const listed = await this.adapter.list(from);
     for (const folder of listed.folders) {
       const name = nameOf(folder);
-      if ((await this.adapter.stat(to + "/" + name)) === null) {
-        await this.adapter.rename(from + "/" + name, to + "/" + name);
-      } else {
-        await this.moveIn(from + "/" + name, to + "/" + name);
+      const target = to + "/" + name;
+      if ((await this.adapter.stat(target)) === null) {
+        const isMoved = await this.adapter.rename(from + "/" + name, target).then(
+          () => true,
+          () => false,
+        );
+        if (isMoved) {
+          continue;
+        }
+        await this.folders.make(target);
       }
+      await this.moveIn(from + "/" + name, target);
     }
     for (const file of listed.files) {
       const name = nameOf(file);
       if (!skip.has(name)) {
-        await this.adapter.rename(from + "/" + name, to + "/" + name);
+        await move(this.adapter, from + "/" + name, to + "/" + name);
       }
     }
   }
 
   /**
-   * Gives up. What was written beside the place is taken away, and the site
+   * Gives up. What was written is taken away, and the site
    * of the build before stays as it was. Only when the new site was on its
    * way in already is the place left without its page, so that it does not
    * pass for a site: with its marker, the next build takes it.
@@ -395,13 +492,12 @@ export class FolderOutput implements SiteOutput {
     if (this.isMovingIn && (await this.adapter.exists(index))) {
       await this.adapter.remove(index);
     }
-    if ((await this.adapter.stat(this.work))?.type === "folder") {
-      await this.adapter.rmdir(this.work, true);
-    }
+    await leaveWork(this.adapter, this.work);
   }
 
   private async place(path: string): Promise<string> {
     const full = this.work + "/" + path;
+    this.first ??= full;
     await this.folders.make(folderOf(full));
     return full;
   }
@@ -462,7 +558,7 @@ export class FolderOutput implements SiteOutput {
 /**
  * A site as one zip archive.
  *
- * The archive is written under another name and gets its own at the very
+ * The archive is written in `WORK` and is moved to its place at the very
  * end. So the archive of the build before is there until the new one is
  * whole, and a build that is stopped or fails leaves no half archive that
  * looks like a site.
@@ -476,7 +572,9 @@ export class ZipOutput implements SiteOutput {
   readonly copiesAtATime = 1;
   private readonly adapter: DataAdapter;
   private readonly path: string;
-  /** Where the archive is written until it is whole */
+  /** The folder of this build in `WORK` */
+  private readonly work: string;
+  /** Where the archive is written until it is whole: in that folder */
   private readonly part: string;
   /** Where the archive of the build before is set aside while the new one gets its name */
   private readonly before: string;
@@ -499,7 +597,8 @@ export class ZipOutput implements SiteOutput {
   constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024, token = wayToken()) {
     this.adapter = adapter;
     this.path = zipPath(path);
-    this.part = this.path + PART + "-" + token;
+    this.work = WORK + "/" + token;
+    this.part = this.work + "/" + nameOf(this.path);
     this.before = this.path + OLD + "-" + token;
     this.mayReplace = mayReplace;
     this.pieceSize = pieceSize;
@@ -513,6 +612,9 @@ export class ZipOutput implements SiteOutput {
     if (hasDotPart(this.path)) {
       throw new Error(`"${this.path}" has a part that is "." or "..". Write the archive of the site as a plain path from the root of the vault.`);
     }
+    if (isInWork(this.path)) {
+      throw new Error(`"${WORK}" is where a site lies while it is built, and it is emptied by every build. Choose another place for the archive.`);
+    }
     const there = await this.adapter.stat(this.path);
     if (there?.type === "folder") {
       throw new Error(`"${this.path}" is a folder. Choose another name for the archive.`);
@@ -520,11 +622,10 @@ export class ZipOutput implements SiteOutput {
     if (there !== null) {
       this.refuseForeign();
     }
-    await new Folders(this.adapter).make(folderOf(this.path));
-    // What a build that broke off wrote beside the place
-    for (const rest of (await leftBehind(this.adapter, this.path, PART)).files) {
-      await this.adapter.remove(rest);
-    }
+    const folders = new Folders(this.adapter);
+    await folders.make(folderOf(this.path));
+    await emptyWork(this.adapter);
+    await folders.make(this.work);
   }
 
   text(path: string, content: string): Promise<void> {
@@ -560,7 +661,7 @@ export class ZipOutput implements SiteOutput {
         await this.adapter.rename(this.path, before);
       }
       try {
-        await this.adapter.rename(this.part, this.path);
+        await move(this.adapter, this.part, this.path);
         const size = (await this.adapter.stat(this.path))?.size;
         if (size !== this.onDisk) {
           throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
@@ -579,9 +680,10 @@ export class ZipOutput implements SiteOutput {
       }
       // An archive that a build set aside and could not put back, when it broke off between the two steps:
       // the new one stands now, and the old one is not needed any more
-      for (const rest of (await leftBehind(this.adapter, this.path, OLD)).files) {
+      for (const rest of await setAside(this.adapter, this.path)) {
         await this.adapter.remove(rest).catch(() => undefined);
       }
+      await leaveWork(this.adapter, this.work).catch(() => undefined);
     });
     return { place: this.path, bytes: this.onDisk };
   }
@@ -589,7 +691,7 @@ export class ZipOutput implements SiteOutput {
   async abort(): Promise<void> {
     this.broken ??= new Error("The build was given up.");
     await this.last;
-    await this.removePart();
+    await leaveWork(this.adapter, this.work);
   }
 
   /** Stops the build when the file at the place of the archive is not one that may give way */
