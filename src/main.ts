@@ -76,8 +76,9 @@ export default class VaultToSitePlugin extends Plugin {
   /**
    * Closing the dialog stops a build that runs, and so does the flag of a
    * build without the dialog: nothing of the plugin goes on working after
-   * it is turned off. A plugin that is turned on again could else start a
-   * second build that writes to the same place.
+   * it is turned off. A build that was stopped still ends what it has begun:
+   * until then, a plugin that is turned on again is refused a second build
+   * (the mark of a build is kept on the window, see `buildSite`).
    */
   override onunload(): void {
     this.dialog?.close();

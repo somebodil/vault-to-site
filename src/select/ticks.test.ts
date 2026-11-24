@@ -40,6 +40,13 @@ describe("ticker", () => {
     assert.equal(isTicked("x/y.md"), true);
     assert.equal(isTicked("Private/z.md"), false);
   });
+
+  it("leaves a path out that is in both lists, and lets the nearest one decide below it", () => {
+    const isTicked = ticker({ on: ["", "Private", "Private/keep.md"], off: ["Private"] });
+    assert.equal(isTicked("Private/z.md"), false);
+    assert.equal(isTicked("Private/keep.md"), true);
+    assert.equal(isTicked("a.md"), true);
+  });
 });
 
 describe("setTick", () => {

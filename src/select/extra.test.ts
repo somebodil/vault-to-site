@@ -67,6 +67,18 @@ describe("planExtra", () => {
   });
 });
 
+describe("a canvas or a base", () => {
+  it("is not taken as an extra file: it would carry the paths and the text it holds", () => {
+    const kinds: Record<string, KindOfPath> = { ...vault, "Boards/Plan.canvas": "undrawn", "Rows.base": "undrawn" };
+    const plan = planExtra("board.canvas: Boards/Plan.canvas\nrows.txt: Rows.base\nb.pdf: Papers/a.pdf", (path) => kinds[path] ?? "none", same, OWN);
+    assert.deepEqual(plan.files, [{ to: "b.pdf", from: "Papers/a.pdf" }]);
+    assert.deepEqual(plan.invalid, [
+      '"Boards/Plan.canvas" is a canvas or a base: the site cannot draw it, and as a file it would carry the paths and the text it holds.',
+      '"Rows.base" is a canvas or a base: the site cannot draw it, and as a file it would carry the paths and the text it holds.',
+    ]);
+  });
+});
+
 describe("paths that lie inside each other", () => {
   it("are not taken: a path cannot be a file and a folder", () => {
     const plan = planExtra("a: Papers/a.pdf\na/b.pdf: Private/Resume.pdf\nc.pdf: Papers/a.pdf", kindOf, same, OWN);

@@ -3,7 +3,7 @@
  * (`exclude`), and the one that takes in only the paths it names (`include`).
  */
 export interface ExcludeRules {
-  /** The patterns that could be compiled. They ignore case. */
+  /** The patterns that could be compiled. They ignore case, and are read as Unicode where they can be. */
   patterns: RegExp[];
   /** True if a pattern is not a valid regular expression */
   hasInvalid: boolean;
@@ -58,13 +58,28 @@ function isQuantifierComma(before: string, input: string, at: number): boolean {
   return /\{\d+$/.test(before) && /^\d*\}/.test(input.slice(at + 1));
 }
 
+/**
+ * A pattern that ignores case. It is read as Unicode (`u`) where it can be:
+ * only then is `\p{Lu}` a kind of letter and not the text `p{Lu}`, and a sign
+ * outside the basic plane, as most emoji, one sign in a class and not two
+ * halves. A pattern that is written more loosely than that allows, as with
+ * `\-`, is read the old way. Throws for one that is valid in neither.
+ */
+function compiled(source: string): RegExp {
+  try {
+    return new RegExp(source, "iu");
+  } catch {
+    return new RegExp(source, "i");
+  }
+}
+
 /** Compiles an input of paths. Invalid patterns are left out and reported. */
 export function parseExcludeRules(input: string): ExcludeRules {
   const rules: ExcludeRules = { patterns: [], hasInvalid: false, invalid: [] };
   for (const pattern of splitPatterns(input)) {
     try {
       // The same letters can be written in two ways, as one sign or as its parts: both sides are compared in one form
-      rules.patterns.push(new RegExp(pattern.normalize("NFC"), "i"));
+      rules.patterns.push(compiled(pattern.normalize("NFC")));
     } catch {
       rules.hasInvalid = true;
       rules.invalid.push(pattern);

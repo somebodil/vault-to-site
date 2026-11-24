@@ -162,19 +162,17 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
  * A sign of what a choice holds: two choices with the same notes and files
  * have the same.
  *
- * It is short whatever the size of the vault, because it is kept in the
- * settings and saved with them: a number of 64 bits, worked out from every
- * path. It tells a vault that has changed since a site was looked over. It
- * is not made to hold against someone who looks for two choices with the
- * same sign.
+ * It is short whatever the size of the vault: a number of 64 bits, worked
+ * out from every path, as 16 digits to the base of 16. It is not saved: the
+ * step that shows the list hands it to the build, and the build works it out
+ * again, so that a vault that has changed since the list was looked over is
+ * told. It is not made to hold against someone who looks for two choices
+ * with the same sign.
  */
 export function signatureOf(choice: Choice): string {
   const extra = choice.extra.map((file) => [file.to, file.from]);
   return hashOf(JSON.stringify(extra.length === 0 ? [choice.notes, choice.files] : [choice.notes, choice.files, extra]));
 }
-
-/** What a sign looks like: 16 digits to the base of 16 */
-export const SIGNATURE = /^[0-9a-f]{16}$/;
 
 /**
  * A number of 64 bits from a text, as two numbers of 32 bits that every

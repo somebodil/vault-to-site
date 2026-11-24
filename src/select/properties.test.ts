@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_PROPERTY_RULES, invalidPropertyLines, invalidPropertyPatterns, matchingRule, parsePropertyRules, propertyProblems } from "./properties.ts";
+import { DEFAULT_PROPERTY_RULES, invalidPropertyLines, matchingRule, parsePropertyRules, propertyProblems } from "./properties.ts";
 
 describe("parsePropertyRules", () => {
   it("reads one rule a line and skips what is not a rule", () => {
@@ -52,6 +52,14 @@ describe("matchingRule", () => {
 
   it("looks into a property that is a list", () => {
     assert.notEqual(matchingRule({ type: ["knowledge", "private"] }, rules), null);
+  });
+
+  it("finds a plain value and a key whose letters are stored as their parts", () => {
+    const written = parsePropertyRules("종류: 비공개");
+    assert.notEqual(matchingRule({ 종류: "비공개".normalize("NFD") }, written), null);
+    assert.notEqual(matchingRule({ ["종류".normalize("NFD")]: "비공개" }, written), null);
+    assert.notEqual(matchingRule({ 종류: "비공개" }, parsePropertyRules("종류: 비공개".normalize("NFD"))), null);
+    assert.equal(matchingRule({ 종류: "공개".normalize("NFD") }, written), null);
   });
 
   it("lets other notes through", () => {
@@ -108,8 +116,7 @@ describe("a value that is a regular expression", () => {
       parsePropertyRules(input).map((rule) => rule.key),
       ["publish", "kind"],
     );
-    assert.deepEqual(invalidPropertyPatterns(input), ["type: /(/", "tags: /[a-/"]);
-    assert.deepEqual(invalidPropertyPatterns(DEFAULT_PROPERTY_RULES), []);
+    assert.deepEqual(propertyProblems(input), ['"type: /(/" does not hold a valid regular expression.', '"tags: /[a-/" does not hold a valid regular expression.']);
     assert.deepEqual(invalidPropertyLines(input), []);
   });
 });
@@ -139,11 +146,14 @@ describe("a regular expression with flags", () => {
   it("is no rule with any other letter after the last slash, and the line is named", () => {
     const input = "type: /private/g\ntags: /^draft/y\nkind: /x/I\nstate: /a/ii\npath: /usr/bin\npublish: false";
     assert.deepEqual(parsePropertyRules(input), [{ key: "publish", value: "false" }]);
-    assert.deepEqual(invalidPropertyPatterns(input), ["type: /private/g", "tags: /^draft/y", "kind: /x/I", "state: /a/ii", "path: /usr/bin"]);
-    assert.deepEqual(propertyProblems("type: /private/g\nstate: /a/ii"), [
-      '"type: /private/g" has letters after its last slash that are not flags of a rule: only i, m, s and u are.',
+    const notFlags = (line: string): string => `"${line}" has letters after its last slash that are not flags of a rule: only i, m, s and u are.`;
+    assert.deepEqual(propertyProblems(input), [
+      notFlags("type: /private/g"),
+      notFlags("tags: /^draft/y"),
+      notFlags("kind: /x/I"),
       // A flag that is given twice is not a valid expression, as in JavaScript
       '"state: /a/ii" does not hold a valid regular expression.',
+      notFlags("path: /usr/bin"),
     ]);
   });
 

@@ -14,7 +14,8 @@ export interface CapturedStyles {
  * does not ask anything for it or say that it failed.
  */
 export const EMPTY_URL = 'url("data:,")';
-const URL_IN_CSS = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
+/** An address in a style, in any of the three ways it is written. `url` may be in capital letters. */
+export const URL_IN_CSS = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/gi;
 
 /**
  * Reads every style sheet of the page of Obsidian: the app, the theme, the
@@ -273,13 +274,64 @@ const NAMES_A_PATH = /\[\s*data-(path|href|file|tooltip)/i;
 /** The same by an attribute that every element can have, when what it is compared with reads like a path: letters, then a slash, or `.md` */
 const COMPARES_A_PATH = /\[\s*(?:src|alt|title|aria-label|href)\s*[~|^$*]?=\s*["']?(?![a-z][a-z0-9+.-]*:|#|\/\/)(?:[^"'\]]*[\p{L}\p{N}][^"'\]]*\/|[^"'\]]*\.md\b)/iu;
 
-/** What a selector compares an attribute with, when it is written in quotes: `[aria-label="Diary 2026"]` gives `Diary 2026` */
-export function quotedInSelector(selector: string): string[] {
-  const quoted: string[] = [];
-  for (const match of selector.matchAll(/\[[^\]=]*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g)) {
-    quoted.push(match[1] ?? match[2] ?? "");
+/**
+ * Attributes whose value is one of a few fixed words and never the name of a
+ * note: the kind of a callout, of a view, of an input. A rule for the callout
+ * `todo` is not left out because a note outside the site is called `Todo`.
+ */
+const HOLDS_A_KEYWORD = new Set([
+  "data-callout",
+  "data-callout-fold",
+  "data-callout-metadata",
+  "data-task",
+  "data-type",
+  "data-mode",
+  "data-language",
+  "type",
+  "role",
+  "lang",
+  "dir",
+  "rel",
+  "target",
+  // The others that the sheet of Obsidian itself compares, mostly without quotes: `[contenteditable=true]`,
+  // `[class*=language-]`, `[data-view-type=table]`. Its rules are not left out for a note called `True` or `Table`.
+  "align",
+  "aria-disabled",
+  "class",
+  "contenteditable",
+  "data-ext",
+  "data-group",
+  "data-highlight",
+  "data-indeterminate",
+  "data-main-rotation",
+  "data-property-count",
+  "data-property-type",
+  "data-resize",
+  "data-rhs-type",
+  "data-section",
+  "data-side",
+  "data-view",
+  "data-view-type",
+  "disabled",
+  "draggable",
+  "side",
+]);
+
+/**
+ * What a selector compares an attribute with, in quotes or without:
+ * `[aria-label="Diary 2026"]` gives `Diary 2026`, and `[title=Diary]` gives
+ * `Diary`. Nothing for an attribute that holds a keyword.
+ */
+export function comparedInSelector(selector: string): string[] {
+  const compared: string[] = [];
+  for (const match of selector.matchAll(/\[\s*([^\]=]*?)\s*[~|^$*]?=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|((?:[^\]\s"'\\]|\\.)+))/g)) {
+    // A name can have the name of a set before it, as `svg|type`
+    const attribute = (match[1] ?? "").split("|").pop() ?? "";
+    if (!HOLDS_A_KEYWORD.has(attribute.toLowerCase())) {
+      compared.push(match[2] ?? match[3] ?? match[4] ?? "");
+    }
   }
-  return quoted;
+  return compared;
 }
 
 /**
@@ -288,14 +340,23 @@ export function quotedInSelector(selector: string): string[] {
  * attribute with the name of a note that is not in the site, as a snippet
  * does that hides the tab of a note.
  */
-function namesPathIn(selector: string, namesKeptOut: (text: string) => boolean): boolean {
-  return NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector) || (selector.includes("[") && quotedInSelector(selector).some(namesKeptOut));
+export function namesPathIn(selector: string, namesKeptOut: (text: string) => boolean): boolean {
+  return NAMES_A_PATH.test(selector) || COMPARES_A_PATH.test(selector) || (selector.includes("[") && comparedInSelector(selector).some(namesKeptOut));
+}
+
+/**
+ * What stands before the block of a rule as the browser holds it: a selector,
+ * or what a rule that holds rules is for, which can pick an element as well
+ * (`@scope ([aria-label="Diary"])`)
+ */
+function preludeOf(rule: CSSRule): string {
+  const held = rule as { selectorText?: unknown; conditionText?: unknown; start?: unknown; end?: unknown };
+  return [held.selectorText, held.conditionText, held.start, held.end].filter((part) => typeof part === "string").join(" ");
 }
 
 /** The same for a rule as the browser holds it */
 function namesPath(rule: CSSRule, namesKeptOut: (text: string) => boolean): boolean {
-  const selector = (rule as { selectorText?: unknown }).selectorText;
-  if (typeof selector === "string" && namesPathIn(selector, namesKeptOut)) {
+  if (namesPathIn(preludeOf(rule), namesKeptOut)) {
     return true;
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
@@ -314,7 +375,8 @@ function textOf(rule: CSSRule, namesKeptOut: (text: string) => boolean): string 
   }
   const inner = (rule as { cssRules?: CSSRuleList }).cssRules;
   const open = rule.cssText.indexOf("{");
-  if (inner === undefined || inner.length === 0 || open === -1 || typeof (rule as { selectorText?: unknown }).selectorText === "string") {
+  // A rule with a selector goes as a whole, and so does a rule that names a path in what stands before its block
+  if (inner === undefined || inner.length === 0 || open === -1 || typeof (rule as { selectorText?: unknown }).selectorText === "string" || namesPathIn(preludeOf(rule), namesKeptOut)) {
     return "";
   }
   return (

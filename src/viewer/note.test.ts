@@ -1,6 +1,37 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findHeading, headingKey } from "./note.ts";
+import { noteAddress } from "../site-format.ts";
+import { findHeading, headingKey, noteOfAddress, sameAddress } from "./note.ts";
+
+describe("noteOfAddress", () => {
+  it("is the note the address names, with or without a heading", () => {
+    assert.equal(noteOfAddress("#/abc", "first"), "abc");
+    assert.equal(noteOfAddress(noteAddress("abc", "Step 1: a/b"), "first"), "abc");
+  });
+
+  it("is the note the site opens with for an address that names none", () => {
+    assert.equal(noteOfAddress("", "first"), "first");
+    assert.equal(noteOfAddress("#", "first"), "first");
+    assert.equal(noteOfAddress("#/", "first"), "first");
+    assert.equal(noteOfAddress("#fn-1", "first"), "first");
+    assert.equal(noteOfAddress("", ""), "");
+  });
+});
+
+describe("sameAddress", () => {
+  it("is true for the same note and heading, however the heading is written", () => {
+    assert.equal(sameAddress("#/abc", "#/abc"), true);
+    assert.equal(sameAddress(noteAddress("abc", "설치 (macOS)"), "#/abc/설치 (macOS)"), true);
+    assert.equal(sameAddress(noteAddress("abc", "50% off"), "#/abc/50%25%20off"), true);
+  });
+
+  it("is false for another note, another heading, or a heading against none", () => {
+    assert.equal(sameAddress("#/abc", "#/abd"), false);
+    assert.equal(sameAddress("#/abc/Install", "#/abc/Use"), false);
+    assert.equal(sameAddress("#/abc/Install", "#/abc"), false);
+    assert.equal(sameAddress("#/abc", ""), false);
+  });
+});
 
 describe("headingKey", () => {
   it("is the letters and digits in lower case, with one space where anything else stands", () => {

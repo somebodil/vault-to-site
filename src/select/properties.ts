@@ -83,16 +83,12 @@ function brokenPatterns(input: string): { line: string; why: "flags" | "invalid"
 }
 
 /**
- * The lines whose value is written as a regular expression that is not a
- * valid one, as `type: /(/`, or that has a flag a rule cannot have, as
- * `type: /private/g`. Such a line keeps nothing out and marks nothing, so it
- * is not passed over in silence either.
+ * What is wrong with an input of properties, said for the one who wrote it:
+ * nothing when every line is a rule that works. A line whose value is written
+ * as a regular expression that is not a valid one, as `type: /(/`, or that
+ * has a flag a rule cannot have, as `type: /private/g`, keeps nothing out and
+ * marks nothing, so it is not passed over in silence either.
  */
-export function invalidPropertyPatterns(input: string): string[] {
-  return brokenPatterns(input).map((broken) => broken.line);
-}
-
-/** What is wrong with an input of properties, said for the one who wrote it: nothing when every line is a rule that works */
 export function propertyProblems(input: string): string[] {
   return [
     ...invalidPropertyLines(input).map((line) => `"${line}" is not a property: write it as key: value.`),
@@ -105,7 +101,7 @@ export function propertyProblems(input: string): string[] {
 /**
  * One rule a line. Lines without a colon, or without a key, are not rules:
  * see `invalidPropertyLines`. Nor is a line whose regular expression is not
- * a valid one, or has a flag a rule cannot have: see `invalidPropertyPatterns`.
+ * a valid one, or has a flag a rule cannot have: see `propertyProblems`.
  */
 export function parsePropertyRules(input: string): PropertyRule[] {
   const rules: PropertyRule[] = [];
@@ -129,7 +125,8 @@ export function parsePropertyRules(input: string): PropertyRule[] {
   return rules;
 }
 
-const fold = (value: unknown): string => String(value).trim().toLowerCase();
+/** A key or a plain value as it is compared: in lower case, and with its letters in one form, as a pattern has them */
+const fold = (value: unknown): string => String(value).trim().normalize("NFC").toLowerCase();
 
 /** True when what a property holds meets the value of a rule: the same text, or text the regular expression finds something in */
 function meets(item: unknown, rule: PropertyRule): boolean {

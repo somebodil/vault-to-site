@@ -14,7 +14,7 @@ import {
 } from "../site-format.ts";
 import { assignIds, extensionOf } from "./ids.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
-import { FolderOutput, MARKER, markerText, type SiteOutput, ZipOutput } from "./output.ts";
+import { FolderOutput, isSiteArchive, MARKER, markerText, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
 import { siteReadme } from "./readme.ts";
 import { headingOf, renderNote, resourceMap, type RenderContext } from "./render.ts";
@@ -36,9 +36,7 @@ export interface BuildResult {
   place: string;
   bytes: number;
   millis: number;
-  /** Writes that had to be done a second time */
-  rewritten: number;
-  /** Notes that Obsidian could not draw. The site says so in their place. */
+  /** Notes that Obsidian could not draw, or that were gone from the vault when their turn came. The site says so in their place. */
   failed: { path: string; message: string }[];
   /** Notes that were taken as they were when their time ran out, with a part of them not there yet */
   unfinished: string[];
@@ -69,17 +67,26 @@ const MOST_FILES_IN_ZIP = 65_535 - 200;
  */
 const AT_A_TIME = Platform.isMobile ? 64 : 128;
 
-/** A build writes to one place and uses the page of Obsidian to draw: there is one at a time */
-let isBuilding = false;
+/**
+ * A build writes to one place and uses the page of Obsidian to draw: there is
+ * one at a time. The mark of it is kept on the window and not in this file:
+ * Obsidian reads the file again when the plugin is turned off and on, and a
+ * build of before that is still stopping would not be known here. It would
+ * write into the site of the build after it.
+ */
+const BUILDING = "vaultToSiteIsBuilding";
+const marks = window as unknown as Record<string, unknown>;
 
 /**
  * Builds the site: decides what it holds, has Obsidian draw every note, and
  * writes the notes, the list of them, the text to search in, the style sheets
  * of Obsidian, the files the notes use and the script that shows it all.
  *
- * @param reviewed the sign of the choice that was looked over (`signatureOf`). The build is not done when the vault has changed since.
+ * @param settings read once, when the build starts: what is changed in them while it runs changes nothing of it
+ * @param reviewed the sign (`signatureOf`) of the choice the build is to hold: the one that was looked over in the dialog, or the one a program worked out. The build is not done when the vault has changed since.
  * @param claim called with the place the site is written to, before anything of the build is there: from then on the place is the plugin's
  * @param width how wide the part of Obsidian that shows the notes is taken to be, in pixels. Left out, it is as wide as it is now.
+ * @param needsEveryNote true for a build that nobody looks at: when a note could not be drawn, it gives up before the site takes its place
  */
 export async function buildSite(
   app: App,
@@ -90,15 +97,19 @@ export async function buildSite(
   progress: Progress,
   stop: { now: boolean },
   width?: number,
+  needsEveryNote = false,
 ): Promise<BuildResult> {
-  if (isBuilding) {
+  if (marks[BUILDING] === true) {
     throw new Error("Another build is still running or stopping. Try again in a moment.");
   }
-  isBuilding = true;
+  marks[BUILDING] = true;
   try {
-    return await build(app, settings, version, reviewed, claim, progress, stop, width);
+    // A copy: the settings of the plugin are one object that is changed in place, when a file gets another
+    // name or the saved settings are read anew. A build goes by what it started with.
+    const own: Settings = { ...settings, ticks: { on: [...settings.ticks.on], off: [...settings.ticks.off] }, written: [...settings.written] };
+    return await build(app, own, version, reviewed, claim, progress, stop, width, needsEveryNote);
   } finally {
-    isBuilding = false;
+    marks[BUILDING] = false;
   }
 }
 
@@ -111,11 +122,13 @@ async function build(
   progress: Progress,
   stop: { now: boolean },
   width: number | undefined,
+  needsEveryNote: boolean,
 ): Promise<BuildResult> {
   const start = Date.now();
   const { choice } = planSite(app, settings);
   if (signatureOf(choice) !== reviewed) {
-    throw new Error("The vault has changed since you looked the site over: other notes or files would go in now. Look it over again.");
+    // Said for both: the one who looked the list over in the dialog, and a program, whose list was worked out a moment ago
+    throw new Error("The vault has changed since the list of what goes into the site was made: other notes or files would go in now. Make the list again: look it over again, or run again.");
   }
   if (settings.format === "zip" && choice.notes.length + choice.files.length > MOST_FILES_IN_ZIP) {
     throw new Error("The site has too many files for one zip archive. Build it as a folder.");
@@ -133,8 +146,11 @@ async function build(
 
   const place = placeOf(settings, normalizePath);
   const extraPaths = choice.extra.map((file) => file.to);
-  const output: SiteOutput =
-    settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, settings.written.includes(place)) : new FolderOutput(app.vault.adapter, place, extraPaths);
+  // An archive at the place may give way when a build of this plugin wrote it. That is known by the record of
+  // what was written, and where there is none, as in a run by a program, which saves nothing, or after the
+  // settings were lost, by what the archive holds. Any other file there is somebody's, and is refused.
+  const isOwnArchive = settings.format === "zip" && (settings.written.includes(place) || (await isSiteArchive(app.vault.adapter, place)));
+  const output: SiteOutput = settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, isOwnArchive) : new FolderOutput(app.vault.adapter, place, extraPaths);
   await output.prepare();
   if (settings.format === "folder") {
     // Before the first file: what a build has started to write into a folder is the plugin's, also when the build is stopped
@@ -150,7 +166,8 @@ async function build(
   };
 
   const doc = activeDocument;
-  const stage = doc.body.createDiv({ cls: "vault-to-site-stage" });
+  // Made here, and put on the page only right before the work that takes it away again on every way out
+  const stage = createDiv({ cls: "vault-to-site-stage" });
   // What is drawn to fit its place, as a diagram is, is drawn as wide as Obsidian shows a note now
   stage.setCssProps({ "--vault-to-site-stage-width": `${String(width ?? noteWidth(app, doc))}px` });
   const viewClass = viewClasses(app);
@@ -200,14 +217,17 @@ async function build(
 
   const drawNote = async (at: number): Promise<void> => {
     const path = choice.notes[at];
-    const file = path === undefined ? null : app.vault.getAbstractFileByPath(path);
-    if (path === undefined || !(file instanceof TFile)) {
+    if (path === undefined) {
       await settle(at, null);
       return;
     }
+    // Null for a note that got another name or was deleted since the list was made. It is not passed over
+    // in silence: it is a note that could not be drawn, and has the page that says so.
+    const found = app.vault.getAbstractFileByPath(path);
+    const file = found instanceof TFile ? found : null;
     progress(done, total, path);
     const id = idOf(path);
-    const cache = app.metadataCache.getFileCache(file);
+    const cache = file === null ? null : app.metadataCache.getFileCache(file);
     // A property or a heading reaches the site as it was written, not as Obsidian draws it: its links are shown as their words
     const page: NotePage = {
       html: "",
@@ -218,6 +238,9 @@ async function build(
     };
     let words = "";
     try {
+      if (file === null) {
+        throw new Error("It is no longer in the vault.");
+      }
       const rendered = await renderNote(file, await app.vault.cachedRead(file), context);
       page.html = rendered.html;
       words = rendered.text;
@@ -243,20 +266,27 @@ async function build(
     done++;
   };
 
+  doc.body.appendChild(stage);
   try {
-    // The first file of a site: an archive is known as one of the plugin by how it starts (`isSiteArchive`). The
-    // extra files are named in it: the next build takes away those it does not write again.
-    await output.text(MARKER, markerText(version, extraPaths));
-    await output.text(".nojekyll", "");
-    // For the one who gets the site without having built it
-    await output.text("README.txt", siteReadme(app.vault.getName(), doc.documentElement.lang));
-
     try {
+      // The first file of a site: an archive is known as one of the plugin by how it starts (`isSiteArchive`), and
+      // in a folder it is written over the marker of the build before, which is left there until now. The
+      // extra files are named in it: the next build takes away those it does not write again.
+      await output.text(MARKER, markerText(version, extraPaths));
+      await output.text(".nojekyll", "");
+      // For the one who gets the site without having built it
+      await output.text("README.txt", siteReadme(app.vault.getName(), doc.documentElement.lang));
+
       await severalAtATime(choice.notes.length, AT_A_TIME, async (at) => {
         check();
         await drawNote(at);
       });
       check();
+      if (needsEveryNote && failed.length > 0) {
+        // Before the site takes its place: nobody would see the page that says a note could not be drawn
+        failed.sort((a, b) => a.path.localeCompare(b.path));
+        throw new Error(`${String(failed.length)} notes could not be drawn: ${failed.map((one) => `${one.path} (${one.message})`).join("; ")}. The site was not finished.`);
+      }
 
       // After the notes: drawing a formula adds styles for the signs it uses
       progress(done, total, "Styles");
@@ -345,7 +375,6 @@ async function build(
       place: written.place,
       bytes: written.bytes,
       millis: Date.now() - start,
-      rewritten: output.rewritten,
       failed: failed.sort((a, b) => a.path.localeCompare(b.path)),
       unfinished: unfinished.sort(),
       mentions: mentions.found(),

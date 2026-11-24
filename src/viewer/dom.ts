@@ -3,7 +3,7 @@
  * there, so elements are made with what every browser has.
  */
 
-export interface Options {
+interface Options {
   cls?: string;
   text?: string;
   attr?: Record<string, string>;

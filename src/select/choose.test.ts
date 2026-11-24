@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { choose, SIGNATURE, signatureOf, type ChoiceRules, type VaultFile } from "./choose.ts";
+import { choose, signatureOf, type ChoiceRules, type VaultFile } from "./choose.ts";
 import { parseExcludeRules } from "./exclude.ts";
 import { DEFAULT_PROPERTY_RULES, parsePropertyRules } from "./properties.ts";
 
@@ -280,6 +280,9 @@ describe("signatureOf", () => {
     assert.notEqual(signatureOf(withExtra), signatureOf({ ...one, extra: [{ to: "Resume.pdf", from: "Private/Other.pdf" }] }));
     assert.equal(signatureOf(one), signatureOf({ ...one, extra: [] }));
   });
+
+  /** What a sign looks like: 16 digits to the base of 16 */
+  const SIGNATURE = /^[0-9a-f]{16}$/;
 
   it("is short, however many notes there are", () => {
     const many = Array.from({ length: 5000 }, (_, i) => `Notes/A folder of some length/Note number ${String(i)} with a name.md`);

@@ -1,10 +1,10 @@
 import { readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
-import { haystack, type Haystack } from "./find.ts";
-import { addFolding, unfoldFor } from "./fold.ts";
+import { haystack, inOrder, missingParts, type Haystack } from "./find.ts";
+import { addFolding, foldCallout, openCallouts, unfoldFor } from "./fold.ts";
 import { graphView } from "./graph.ts";
 import { dressEmbeds, dressLists } from "./dress.ts";
-import { copyText, fileView, findHeading, noteBlocks, propertiesView, titleOf } from "./note.ts";
+import { copyText, fileView, findHeading, noteBlocks, noteOfAddress, propertiesView, sameAddress, titleOf } from "./note.ts";
 import { watchPreviews } from "./preview.ts";
 import { createSearch, type Found } from "./search.ts";
 import { watchSwipe, type Side } from "./swipe.ts";
@@ -29,8 +29,10 @@ import { buildTree, firstNote, treeView } from "./tree.ts";
  */
 const pages = new Map<string, NotePage>();
 const MOST_PAGES = 60;
-/** The texts to search in, as the scripts of the data hand them over */
-const texts: Haystack[] = [];
+/** The texts to search in, as the scripts of the data hand them over: each part at its number, in whatever order they arrive */
+const textParts: (Haystack[] | undefined)[] = [];
+/** The same texts in the order of the parts. Made again when a part arrives, not at every key. */
+let texts: Haystack[] = [];
 
 const site: SiteGlobal = {
   index(loaded) {
@@ -46,10 +48,9 @@ const site: SiteGlobal = {
       pages.delete(oldest);
     }
   },
-  search(_part, entries) {
-    for (const [id, text] of entries) {
-      texts.push(haystack(id, text));
-    }
+  search(part, entries) {
+    textParts[part] = entries.map(([id, text]) => haystack(id, text));
+    texts = inOrder(textParts);
   },
 };
 (window as unknown as { __site: SiteGlobal }).__site = site;
@@ -106,6 +107,14 @@ function start(index: SiteIndex): void {
 
   // ---- What is worked out once for the whole site ----
   const root = buildTree(index);
+  /** The note the site opens with when the address names none */
+  const firstId = firstNote(root, index) ?? "";
+  // The note of the address is asked for now, before the frame and the rows of the files are made: it is on
+  // its way while they are. It is shown at the end, when everything it is shown with is there.
+  const opening = noteOfAddress(window.location.hash, firstId);
+  if (index.notes[opening] !== undefined) {
+    void loadNote(opening);
+  }
   /** For every note, the notes that link to it */
   const linkedFrom = new Map<string, string[]>();
   for (const [id, note] of Object.entries(index.notes)) {
@@ -121,12 +130,22 @@ function start(index: SiteIndex): void {
   let searchLoading: Promise<void> | null = null;
   const search = createSearch({
     index,
-    texts() {
-      searchLoading ??= Promise.all(Array.from({ length: index.searchParts }, (_, part) => loadScript(`data/s/${String(part)}.js`))).then(
-        () => undefined,
-        () => undefined,
-      );
-      return { ready: texts, loading: searchLoading };
+    texts: () => texts,
+    load() {
+      if (searchLoading !== null) {
+        return searchLoading;
+      }
+      const missing = missingParts(textParts, index.searchParts);
+      if (missing.length === 0) {
+        return null;
+      }
+      // Each part is waited for by itself: one that cannot be loaded does not end the wait for the others
+      const asked = Promise.all(missing.map((part) => loadScript(`data/s/${String(part)}.js`).catch(() => undefined))).then(() => {
+        // Over, whether all of them arrived or not: a part that did not is asked for again when the search is opened the next time
+        searchLoading = null;
+      });
+      searchLoading = asked;
+      return asked;
     },
     go(id, find) {
       // The address does not change for a note that is open or on its way: nothing would be told of it
@@ -164,11 +183,11 @@ function start(index: SiteIndex): void {
     { cls: `markdown-preview-view markdown-rendered node-insert-event ${viewClass}` },
     [sizer],
   );
-  // A note that is wider than the window, as with a wide diagram, is moved sideways by a finger as a whole.
-  // The style sheet leaves that to the browser only where there is something to move: see the narrow window there.
   /** Where a note that was come back to is to be scrolled to, until the reader moves it or it has stood long enough */
   let putBack: number | null = null;
   new ResizeObserver(() => {
+    // A note that is wider than the window, as with a wide diagram, is moved sideways by a finger as a whole.
+    // The style sheet leaves that to the browser only where there is something to move: see the narrow window there.
     scroller.classList.toggle("v2s-wide", scroller.scrollWidth > scroller.clientWidth + 1);
     // A picture that arrives makes the note taller: the place is counted from its top, so it is set again
     if (putBack !== null) {
@@ -362,9 +381,10 @@ function start(index: SiteIndex): void {
   /** What a search asked to be shown in the note it leads to */
   let pendingFind: Found | null = null;
 
-  /** Scrolls to something in the note, after opening the folded headings that hide it */
+  /** Scrolls to something in the note, after opening the folded headings and the closed callouts that hide it */
   const bring = (target: Element, block: ScrollLogicalPosition): void => {
     unfoldFor(sizer, target);
+    openCallouts(sizer, target);
     target.scrollIntoView({ block });
   };
 
@@ -393,6 +413,7 @@ function start(index: SiteIndex): void {
     const state: unknown = window.history.state;
     if (found !== null) {
       unfoldFor(sizer, found.block);
+      openCallouts(sizer, found.text?.parentElement ?? found.block);
       if (found.text === null) {
         found.block.scrollIntoView({ block: "start" });
       } else {
@@ -412,13 +433,18 @@ function start(index: SiteIndex): void {
         }
       }, 4000);
     } else {
-      const named = heading !== "" ? headingEl(heading) : null;
-      if (named !== null) {
-        bring(named, "start");
-        flash(named);
-      } else {
-        scroller.scrollTop = 0;
-      }
+      goTo(heading);
+    }
+  };
+
+  /** Goes to a heading of the note that is shown, or to its top for no heading and for one it does not have */
+  const goTo = (heading: string): void => {
+    const named = heading !== "" ? headingEl(heading) : null;
+    if (named !== null) {
+      bring(named, "start");
+      flash(named);
+    } else {
+      scroller.scrollTop = 0;
     }
   };
 
@@ -431,11 +457,18 @@ function start(index: SiteIndex): void {
   const draw = async (id: string, path: string, turn: number, heading: string, find: Found | null): Promise<boolean> => {
     const note = index.notes[id];
     const file = index.files[id];
-    const slash = path.lastIndexOf("/");
-    titleParent.textContent = slash === -1 ? "" : path.slice(0, slash + 1);
-    title.textContent = titleOf(path);
-    document.title = `${titleOf(path)} - ${index.name}`;
-    tree.show(id);
+    /**
+     * Says which note is shown: above the note, in the title of the page, and in the list of files. Only once
+     * this turn is sure to be the one that is shown: a note that is still on its way when another one is asked
+     * for leaves the name of the note that stays.
+     */
+    const putName = (): void => {
+      const slash = path.lastIndexOf("/");
+      titleParent.textContent = slash === -1 ? "" : path.slice(0, slash + 1);
+      title.textContent = titleOf(path);
+      document.title = `${titleOf(path)} - ${index.name}`;
+      tree.show(id);
+    };
     closeOnNarrow();
 
     // As in the reading view of Obsidian: what stands above the note is one block that is not of the note,
@@ -448,12 +481,14 @@ function start(index: SiteIndex): void {
       header.appendChild(el("div", { cls: "inline-title", text: titleOf(path) }));
     }
     if (note === undefined && file !== undefined) {
+      putName();
       parts.push(fileView(file.a, path));
     } else {
       const page = await loadNote(id);
       if (turn !== drawing) {
         return false;
       }
+      putName();
       if (page === null) {
         // Nothing of the note before is left standing, as if it were this one, and the note can be asked for again
         current = "";
@@ -622,11 +657,8 @@ function start(index: SiteIndex): void {
     const fold = target.closest(".callout.is-collapsible > .callout-title");
     if (fold !== null) {
       const callout = fold.parentElement;
-      const content = callout?.querySelector<HTMLElement>(":scope > .callout-content");
-      const collapse = callout?.classList.toggle("is-collapsed") ?? false;
-      fold.querySelector(".callout-fold")?.classList.toggle("is-collapsed", collapse);
-      if (content !== null && content !== undefined) {
-        content.style.display = collapse ? "none" : "";
+      if (callout !== null) {
+        foldCallout(callout, !callout.classList.contains("is-collapsed"));
       }
       return;
     }
@@ -634,6 +666,15 @@ function start(index: SiteIndex): void {
     const embedded = opener?.closest("[data-v2s-open]")?.getAttribute("data-v2s-open");
     if (embedded !== null && embedded !== undefined) {
       window.location.hash = "#/" + embedded;
+      return;
+    }
+    // A link to the place the address names already, as a second press on a link to a heading of this note:
+    // the browser tells nothing of it, so the place is gone to here. Not with a key held that opens a link elsewhere.
+    const here = target.closest("a[href^='#/']")?.getAttribute("href") ?? "";
+    if (here !== "" && current !== "" && readNoteAddress(here).id === current && sameAddress(here, window.location.hash) && !(event.ctrlKey || event.metaKey || event.shiftKey)) {
+      event.preventDefault();
+      putBack = null;
+      goTo(readNoteAddress(here).heading);
       return;
     }
     // A link inside the page that is not a note, as the one from a footnote: the address is left alone
@@ -695,8 +736,10 @@ function start(index: SiteIndex): void {
     () => {
       window.clearTimeout(noting);
       noting = window.setTimeout(() => {
-        // Not while the note is still being put back where it was: its place then is not the reader's
-        if (current !== "" && putBack === null) {
+        // Not while the note is still being put back where it was: its place then is not the reader's.
+        // Nor while another note is on its way: the address is that note's by then, and so is its place in the
+        // history of the browser, which this place of the note that is still shown would be written into.
+        if (current !== "" && putBack === null && noteOfAddress(window.location.hash, firstId) === current) {
           try {
             window.history.replaceState({ id: current, scroll: scroller.scrollTop }, "");
           } catch {
@@ -731,7 +774,7 @@ function start(index: SiteIndex): void {
       return;
     }
     const { id, heading } = readNoteAddress(window.location.hash);
-    const wanted = id !== "" ? id : (firstNote(root, index) ?? "");
+    const wanted = id !== "" ? id : firstId;
     const find = pendingFind;
     pendingFind = null;
     void show(wanted, heading, find);

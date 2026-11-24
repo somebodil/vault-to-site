@@ -34,9 +34,8 @@ function nameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 }
 
-/** A letter or digit of the Latin script: where a name ends with one, a longer word is another word */
+/** A letter or digit of the Latin script: where a name ends with one and another one follows, that is a longer word and another word */
 const LATIN = /[0-9a-z\u00c0-\u024f]/i;
-const LETTER = /[\p{L}\p{N}]/u;
 
 /** Looks through the pages for names, one page at a time, so that the words of all pages need not be kept */
 export interface MentionFinder {
@@ -54,8 +53,9 @@ export interface MentionFinder {
  * that start with it are compared.
  *
  * A name starts where a word starts. In the Latin script it also ends where
- * a word ends, so that `plan` is not found in `planet`. In scripts that add
- * endings to a word without a space, as Korean does, it may go on.
+ * a word ends, so that `plan` is not found in `planet`. An ending of another
+ * script may follow without a space, as Korean adds them, also to a name in
+ * Latin letters or to a date: `Budget를`, `2026-11-24에`.
  */
 export function mentionFinder(keptOut: readonly string[]): MentionFinder {
   /**
@@ -91,9 +91,9 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
       return;
     }
     const text = fold(pageText);
-    // A pattern of its own: this may run while another page is looked through
-    const words = new RegExp(WORD.source, WORD.flags);
-    for (let word = words.exec(text); word !== null; word = words.exec(text)) {
+    // The one pattern, from the start of this text: a walk is done in one go, and one that `hit` ended has left it in the middle
+    WORD.lastIndex = 0;
+    for (let word = WORD.exec(text); word !== null; word = WORD.exec(text)) {
       for (const length of lengths) {
         if (length > word[0].length) {
           break;
@@ -106,7 +106,7 @@ export function mentionFinder(keptOut: readonly string[]): MentionFinder {
           if (paths === undefined) {
             continue;
           }
-          const goesOn = LETTER.test(text.charAt(start + shape.length)) && LATIN.test(name.charAt(name.length - 1));
+          const goesOn = LATIN.test(text.charAt(start + shape.length)) && LATIN.test(name.charAt(name.length - 1));
           if (!goesOn && hit(paths)) {
             return;
           }

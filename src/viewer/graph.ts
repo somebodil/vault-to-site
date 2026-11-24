@@ -1,5 +1,5 @@
 import { el } from "./dom.ts";
-import { boundsOf, makeGraph, step, type Graph } from "./layout.ts";
+import { boundsOf, makeGraph, paintOf, step, type Graph } from "./layout.ts";
 
 export interface GraphHost {
   /** The notes a note links to */
@@ -49,6 +49,8 @@ export function graphView(host: GraphHost): GraphView {
   let frame = 0;
   let stepsLeft = 0;
   let colors = { node: "#888", focus: "#7c3aed", line: "#ccc", text: "#222" };
+  /** The font of the names, read with the colors: asking the browser for it at every picture has it work out styles each time */
+  let font = "sans-serif";
 
   const readColors = (): void => {
     colors = {
@@ -57,6 +59,7 @@ export function graphView(host: GraphHost): GraphView {
       line: host.color("--graph-line", "var(--background-modifier-border, #ccc)"),
       text: host.color("--graph-text", "var(--text-normal, #222)"),
     };
+    font = getComputedStyle(container).fontFamily || font;
   };
 
   const size = (): { width: number; height: number } => ({ width: container.clientWidth, height: container.clientHeight });
@@ -120,18 +123,25 @@ export function graphView(host: GraphHost): GraphView {
       context.stroke();
     }
 
+    // The dots, each kind of them in one go (`paintOf`): those out of the light first, the marked ones on top
+    const dots = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
     for (const [at, node] of graph.nodes.entries()) {
-      context.globalAlpha = near === null || isLit(at) ? 1 : 0.25;
-      context.fillStyle = at === focus || at === hovered ? colors.focus : colors.node;
-      context.beginPath();
-      context.arc(node.x, node.y, radiusOf(node.degree) / Math.sqrt(scale), 0, Math.PI * 2);
-      context.fill();
+      const radius = radiusOf(node.degree) / Math.sqrt(scale);
+      const dot = dots[paintOf(at, focus, hovered, near ?? null)];
+      // A dot starts where its circle starts, so that no line leads to it from the dot before
+      dot?.moveTo(node.x + radius, node.y);
+      dot?.arc(node.x, node.y, radius, 0, Math.PI * 2);
+    }
+    for (const [paint, dot] of dots.entries()) {
+      context.globalAlpha = paint < 2 ? 0.25 : 1;
+      context.fillStyle = paint % 2 === 1 ? colors.focus : colors.node;
+      context.fill(dot);
     }
 
     // Names: of all notes while they are few, else of the note under the pointer, its neighbors, and the note that is open
     context.globalAlpha = 1;
     context.fillStyle = colors.text;
-    context.font = `${String(12 / scale)}px ${getComputedStyle(container).fontFamily}`;
+    context.font = `${String(12 / scale)}px ${font}`;
     context.textAlign = "center";
     context.textBaseline = "top";
     const namesAll = graph.nodes.length <= NAMES_UP_TO;

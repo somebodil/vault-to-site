@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { boundsOf, makeGraph, step, type Graph } from "./layout.ts";
+import { boundsOf, makeGraph, paintOf, step, type Graph } from "./layout.ts";
 
 const links: Record<string, string[]> = { a: ["b", "c", "b", "a", "gone"], b: ["a"], c: [], d: [] };
 const graph = (): Graph => makeGraph(["a", "b", "c", "d"], (id) => links[id] ?? []);
@@ -118,5 +118,26 @@ describe("step", () => {
     const g = makeGraph([], () => []);
     assert.equal(step(g), 0);
     assert.deepEqual(boundsOf(g), { left: 0, top: 0, right: 0, bottom: 0 });
+  });
+});
+
+describe("paintOf", () => {
+  it("paints every note in the light while the pointer is on none, and marks the note that is open", () => {
+    assert.deepEqual(
+      [0, 1, 2].map((at) => paintOf(at, 1, -1, null)),
+      [2, 3, 2],
+    );
+    assert.equal(paintOf(0, -1, -1, null), 2);
+  });
+
+  it("keeps in the light only the note under the pointer and the notes it has links with", () => {
+    // The pointer is on note 0, which has a link with note 1. Note 3 is open.
+    const near = new Set([1]);
+    assert.deepEqual(
+      [0, 1, 2, 3].map((at) => paintOf(at, 3, 0, near)),
+      [3, 2, 0, 1],
+    );
+    // The note that is open is in the light when it has a link with the one under the pointer
+    assert.equal(paintOf(1, 1, 0, near), 3);
   });
 });

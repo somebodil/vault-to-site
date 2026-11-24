@@ -120,7 +120,8 @@ export interface SwipeHost {
  * can still be scrolled the way the finger goes.
  */
 function isTaken(target: Element, root: Element, dx: number): boolean {
-  if (target.closest("canvas, input, textarea, select, [contenteditable]") !== null) {
+  // A sound or a film has a line of its own that a finger moves along
+  if (target.closest("canvas, input, textarea, select, audio, video, [contenteditable]") !== null) {
     return true;
   }
   for (let at: Element | null = target; at !== null && at !== root; at = at.parentElement) {

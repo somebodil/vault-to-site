@@ -45,6 +45,24 @@ describe("findMentions", () => {
     assert.deepEqual(findMentions([{ path: "a.md", text: "새가계부" }], ["Money/가계부.md"]), []);
   });
 
+  it("finds a name in Latin letters or a date that an ending of another script follows", () => {
+    const keptOut = ["Daily/2026-11-24.md", "Money/Budget.md"];
+    assert.deepEqual(findMentions([{ path: "a.md", text: "2026-11-24에 정리했고 Budget를 본다" }], keptOut), [
+      { path: "Daily/2026-11-24.md", shownIn: ["a.md"] },
+      { path: "Money/Budget.md", shownIn: ["a.md"] },
+    ]);
+    // A longer word of the Latin script, or a longer number, is still another word
+    assert.deepEqual(findMentions([{ path: "a.md", text: "Budgets and 2026-11-245" }], keptOut), []);
+  });
+
+  it("looks through each text from its start, also after a look that ended early", () => {
+    const finder = mentionFinder(["Private/Plan.md"]);
+    assert.equal(finder.names("the plan of a long text that goes on"), true);
+    assert.equal(finder.names("plan"), true);
+    finder.add("a.md", "plan");
+    assert.deepEqual(finder.found(), [{ path: "Private/Plan.md", shownIn: ["a.md"] }]);
+  });
+
   it("leaves very short names alone", () => {
     assert.deepEqual(findMentions([{ path: "a.md", text: "to do or not" }], ["to.md", "or.md"]), []);
   });

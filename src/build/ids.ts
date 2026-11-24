@@ -34,9 +34,15 @@ export function assignIds(paths: readonly string[]): Map<string, string> {
   return ids;
 }
 
-/** The ending of a file name in lower case, without the dot. Empty when there is none. */
+/**
+ * The ending of a file name in lower case, without the dot. Empty when there
+ * is none, and when it is not made of letters and digits, ten at most: an
+ * ending goes into an address of the site as it is, and a sign as `?` or `#`
+ * would cut the address there, as in `a.png?raw=true`.
+ */
 export function extensionOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
-  return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+  const ending = dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+  return /^[a-z0-9]{1,10}$/.test(ending) ? ending : "";
 }

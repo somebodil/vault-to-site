@@ -1,4 +1,4 @@
-import type { PropertyEntry, PropertyValue } from "../site-format.ts";
+import { readNoteAddress, type PropertyEntry, type PropertyValue } from "../site-format.ts";
 import { el } from "./dom.ts";
 
 /** The name of a note or file, without its folder and without `.md` */
@@ -29,10 +29,25 @@ export function findHeading<T>(headings: readonly T[], textOf: (heading: T) => s
 }
 
 /**
- * Reads a note back as it was written: as XML, so that a block inside a
- * paragraph stays there. Should a browser refuse the XML, the note is read as
- * HTML, which shows the same words with some of the nesting lost.
+ * The note an address names: the one whose id it holds, and for an address
+ * without one, the note the site opens with.
  */
+export function noteOfAddress(address: string, first: string): string {
+  const { id } = readNoteAddress(address);
+  return id !== "" ? id : first;
+}
+
+/**
+ * True when two addresses name the same note and the same heading, however
+ * each of them is written. A browser tells nothing of a link to the address
+ * it has already.
+ */
+export function sameAddress(one: string, other: string): boolean {
+  const a = readNoteAddress(one);
+  const b = readNoteAddress(other);
+  return a.id === b.id && a.heading === b.heading;
+}
+
 /**
  * The blocks of a note as the reading view of Obsidian has them: each in a
  * `div` that is named after what it holds, as `el-h2`, `el-p` or `el-ul`.
@@ -56,7 +71,13 @@ export function noteBlocks(xml: string, isLazy = false): HTMLElement[] {
   return blocks;
 }
 
-/** @param isLazy pictures and frames are fetched when they come into sight, not at once: for a small window on a note, which shows a part of it */
+/**
+ * Reads a note back as it was written: as XML, so that a block inside a
+ * paragraph stays there. Should a browser refuse the XML, the note is read as
+ * HTML, which shows the same words with some of the nesting lost.
+ *
+ * @param isLazy pictures and frames are fetched when they come into sight, not at once: for a small window on a note, which shows a part of it
+ */
 function noteNodes(xml: string, isLazy: boolean): Node[] {
   const parsed = new DOMParser().parseFromString(`<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`, "application/xhtml+xml");
   const root = parsed.documentElement;

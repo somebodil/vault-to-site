@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_SETTINGS, followDelete, followRename, givenProblems, placeOf, readSettings, type Settings } from "./settings.ts";
+import { DEFAULT_SETTINGS, followDelete, followRename, givenProblems, givenTicks, placeOf, readSettings, type Settings } from "./settings.ts";
 
 describe("readSettings", () => {
   it("gives the defaults for nothing saved", () => {
@@ -193,5 +193,30 @@ describe("followDelete", () => {
     assert.equal(followDelete(settings, "Blo"), settings);
     assert.equal(followDelete(settings, "out/site.zip.v2s-old"), settings);
     assert.equal(followDelete(settings, ""), settings);
+  });
+});
+
+describe("givenTicks", () => {
+  /** As Obsidian makes a path normal: no slash at its ends, and its letters put together */
+  const normal = (path: string): string => {
+    const plain = path.replace(/[\\/]+/g, "/").replace(/^\/+|\/+$/g, "");
+    return plain === "" ? "/" : plain.normalize("NFC");
+  };
+  const inVault = new Set(["Private", "Notes", "Notes/a.md", "한글"]);
+  const has = (path: string): boolean => inVault.has(path);
+
+  it("puts each path into the form the vault has", () => {
+    const read = givenTicks({ on: ["", "/Notes/"], off: ["Private/", "/Private", "Notes\\a.md", "한글".normalize("NFD")] }, normal, has);
+    assert.deepEqual(read, { ticks: { on: ["", "Notes"], off: ["Notes/a.md", "Private", "한글"] }, problems: [] });
+  });
+
+  it("takes a slash for the whole vault, and does not ask whether the whole vault is there", () => {
+    assert.deepEqual(givenTicks({ on: ["/"], off: [] }, normal, () => false), { ticks: { on: [""], off: [] }, problems: [] });
+    assert.deepEqual(givenTicks({ on: [""], off: [] }, normal, () => false), { ticks: { on: [""], off: [] }, problems: [] });
+  });
+
+  it("names a path that is no folder and no file of the vault, as it was written", () => {
+    const read = givenTicks({ on: ["Note"], off: ["Privat/", "Private"] }, normal, has);
+    assert.deepEqual(read.problems, ['"ticks.on" names "Note", which is not a folder or file of the vault.', '"ticks.off" names "Privat/", which is not a folder or file of the vault.']);
   });
 });

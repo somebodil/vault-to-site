@@ -12,6 +12,7 @@ class MemoryAdapter {
   readonly emptyOnce = new Set<string>();
   writes = 0;
   appends = 0;
+  copies = 0;
 
   exists(path: string): Promise<boolean> {
     return Promise.resolve(this.files.has(path) || this.folders.has(path));
@@ -107,6 +108,7 @@ class MemoryAdapter {
   }
 
   copy(from: string, to: string): Promise<void> {
+    this.copies++;
     const file = this.files.get(from);
     if (file !== undefined) {
       this.files.set(to, this.emptyOnce.delete(to) ? new Uint8Array(0) : file.slice());
@@ -195,7 +197,8 @@ describe("FolderOutput", () => {
     adapter.files.set("site/.git/config", new Uint8Array(4));
     adapter.files.set("site/CNAME", new Uint8Array(5));
     await new FolderOutput(adapter.asAdapter, "site").prepare();
-    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/CNAME"]);
+    // The marker stays: the build writes it again as its first file
+    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/CNAME", "site/" + MARKER]);
 
     adapter.folders.add("Notes");
     adapter.files.set("Notes/keep.md", new Uint8Array(3));
@@ -214,7 +217,7 @@ describe("FolderOutput", () => {
       adapter.files.set(file, new Uint8Array(3));
     }
     await new FolderOutput(adapter.asAdapter, "site").prepare();
-    assert.deepEqual([...adapter.files.keys()].sort(), ["outside.pdf", "site/.git/config", "site/CNAME", "site/docs/mine.txt"]);
+    assert.deepEqual([...adapter.files.keys()].sort(), ["outside.pdf", "site/.git/config", "site/CNAME", "site/docs/mine.txt", "site/" + MARKER]);
     assert.deepEqual([...adapter.folders].sort(), ["site", "site/.git", "site/docs"]);
   });
 
@@ -249,7 +252,7 @@ describe("FolderOutput", () => {
     // With a marker of the plugin, the same folder is the site of the build before
     const site = vault(marker());
     await new FolderOutput(site.asAdapter, "Vault").prepare();
-    assert.deepEqual([...site.files.keys()], []);
+    assert.deepEqual([...site.files.keys()], ["Vault/" + MARKER]);
   });
 
   it("refuses a place with a part that is . or ..", async () => {
@@ -298,7 +301,7 @@ describe("FolderOutput", () => {
       const adapter = site(["Resume.pdf", "old/a.pdf"], ["CNAME"]);
       const output = new FolderOutput(adapter.asAdapter, "site", ["Resume.pdf", "docs/b.pdf"]);
       await output.prepare();
-      assert.deepEqual([...adapter.files.keys()], ["site/CNAME"]);
+      assert.deepEqual([...adapter.files.keys()], ["site/" + MARKER, "site/CNAME"]);
       adapter.files.set("Papers/Resume.pdf", new Uint8Array([1, 2, 3]));
       await output.copy("Papers/Resume.pdf", "Resume.pdf");
       assert.deepEqual([...(adapter.files.get("site/Resume.pdf") ?? [])], [1, 2, 3]);
@@ -315,7 +318,7 @@ describe("FolderOutput", () => {
     it("writes beside what is in the folders of the path, and where an extra file of before was a folder's name", async () => {
       const adapter = site(["docs"], ["papers/mine.txt"]);
       await new FolderOutput(adapter.asAdapter, "site", ["docs/a.pdf", "papers/b.pdf"]).prepare();
-      assert.deepEqual([...adapter.files.keys()], ["site/papers/mine.txt"]);
+      assert.deepEqual([...adapter.files.keys()], ["site/" + MARKER, "site/papers/mine.txt"]);
     });
 
     it("finds nothing in the way in a folder that is new or empty", async () => {
@@ -342,13 +345,38 @@ describe("FolderOutput", () => {
     adapter.emptyOnce.add("site/a.js");
     await output.text("a.js", "content");
     assert.equal(adapter.text("site/a.js"), "content");
-    assert.equal(output.rewritten, 1);
+    assert.equal(adapter.writes, 2, "written, and written again");
 
     adapter.files.set("pic.png", new Uint8Array([1, 2, 3]));
     adapter.emptyOnce.add("site/assets/pic.png");
     await output.copy("pic.png", "assets/pic.png");
     assert.deepEqual([...(adapter.files.get("site/assets/pic.png") ?? [])], [1, 2, 3]);
-    assert.equal(output.rewritten, 2);
+    assert.equal(adapter.copies, 2, "copied, and copied again");
+  });
+
+  it("takes the page away first and leaves the marker, so that a folder half taken away is no site and is still the plugin's", async () => {
+    const adapter = new MemoryAdapter();
+    for (const folder of ["site", "site/app", "site/data", "site/.git"]) {
+      adapter.folders.add(folder);
+    }
+    adapter.files.set("site/" + MARKER, marker(["Resume.pdf"]));
+    for (const file of ["site/index.html", "site/app/viewer.js", "site/data/index.js", "site/README.txt", "site/Resume.pdf", "site/.git/config"]) {
+      adapter.files.set(file, new Uint8Array(3));
+    }
+    // Taking the folders away breaks off, as when the app is closed or a file is held by another program
+    const rmdir = adapter.rmdir.bind(adapter);
+    adapter.rmdir = () => Promise.reject(new Error("the folder is busy"));
+    await assert.rejects(new FolderOutput(adapter.asAdapter, "site").prepare(), /busy/);
+    assert.equal(adapter.files.has("site/index.html"), false);
+    assert.equal(readMarker(adapter.text("site/" + MARKER)) !== null, true);
+
+    // The next build takes the folder for the site it is, and its first write is the marker of its own
+    adapter.rmdir = rmdir;
+    const output = new FolderOutput(adapter.asAdapter, "site");
+    await output.prepare();
+    assert.deepEqual([...adapter.files.keys()].sort(), ["site/.git/config", "site/" + MARKER]);
+    await output.text(MARKER, markerText("0.2.0", []));
+    assert.equal(adapter.text("site/" + MARKER), markerText("0.2.0", []));
   });
 });
 
@@ -433,7 +461,7 @@ describe("ZipOutput", () => {
     await output.prepare();
     await output.text("index.html", "content");
     await output.finish();
-    assert.equal(output.rewritten, 1);
+    assert.equal(adapter.writes, 2, "written, and written again");
     assert.deepEqual([...unzip(adapter.files.get("site.zip") ?? new Uint8Array(0))], [["index.html", "content"]]);
   });
 

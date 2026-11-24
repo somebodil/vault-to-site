@@ -29,18 +29,22 @@ export function isAtOrUnder(path: string, folder: string): boolean {
   return folder === "" || path === folder || path.startsWith(folder + "/");
 }
 
-/** Answers for many paths with the lists read once */
+/**
+ * Answers for many paths with the lists read once. A path that is in both
+ * lists is left out: the lists of a run by a program are written by hand, and
+ * what is left out wins.
+ */
 export function ticker(ticks: Ticks): (path: string) => boolean {
   const on = new Set(ticks.on);
   const off = new Set(ticks.off);
   return (path) => {
     let at: string | null = path;
     while (at !== null) {
-      if (on.has(at)) {
-        return true;
-      }
       if (off.has(at)) {
         return false;
+      }
+      if (on.has(at)) {
+        return true;
       }
       at = parentOf(at);
     }
@@ -65,11 +69,6 @@ export function setTick(ticks: Ticks, path: string, value: boolean): Ticks {
   return next;
 }
 
-/**
- * Follows a folder or file that was given another name or place. Without
- * this, a note that was left out of a ticked folder would be back in the
- * site after it was renamed: its path would no longer be in the list.
- */
 /** Where a path is after a folder or file was renamed: the new path when it is the renamed thing or inside it, else the same */
 export function movedPath(path: string, from: string, to: string): string {
   if (from === "" || !isAtOrUnder(path, from)) {
@@ -80,7 +79,9 @@ export function movedPath(path: string, from: string, to: string): string {
 
 /**
  * The ticks after a folder or file got another name: what was decided for it
- * and for what is inside it goes with it.
+ * and for what is inside it goes with it. Without this, a note that was left
+ * out of a ticked folder would be back in the site after it was renamed: its
+ * path would no longer be in the list.
  *
  * Obsidian says that a folder has another name and says the same of
  * everything in it, in no promised order. Each of these may be given here:

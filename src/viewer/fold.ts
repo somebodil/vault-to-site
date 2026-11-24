@@ -35,11 +35,6 @@ export function hiddenBlocks(blocks: readonly { level: number; isFolded: boolean
   });
 }
 
-/**
- * Lets the headings of a note be folded, as in the reading view of Obsidian:
- * a triangle before a heading folds what is under it. Only the headings of
- * the note itself, which are the blocks at its top level.
- */
 /** Hides and shows the blocks of a note by which of its headings are folded */
 function apply(sizer: HTMLElement): void {
   const blocks = Array.from(sizer.children);
@@ -80,6 +75,45 @@ export function unfoldFor(sizer: HTMLElement, target: Element): void {
   }
 }
 
+/**
+ * Closes or opens a callout that can be folded, as Obsidian marks it in what
+ * it draws: the callout and the sign in its title say that it is closed, and
+ * what the callout holds is taken out of sight on the element itself.
+ */
+export function foldCallout(callout: Element, isFolded: boolean): void {
+  callout.classList.toggle("is-collapsed", isFolded);
+  callout.querySelector(":scope > .callout-title .callout-fold")?.classList.toggle("is-collapsed", isFolded);
+  const content = callout.querySelector<HTMLElement>(":scope > .callout-content");
+  if (content !== null) {
+    content.style.display = isFolded ? "none" : "";
+  }
+}
+
+/** What a closed callout hides: what it holds, not its title */
+const HIDDEN_BY_CALLOUT = ".callout.is-collapsed > .callout-content";
+
+/**
+ * Opens the closed callouts that hide something of a note, so that it can be
+ * gone to: a line a search found, the place a footnote leads to. A callout
+ * inside a callout is hidden by both.
+ */
+export function openCallouts(sizer: HTMLElement, target: Element): void {
+  let hidden = target.closest(HIDDEN_BY_CALLOUT);
+  while (hidden !== null && sizer.contains(hidden)) {
+    const callout: Element | null = hidden.parentElement;
+    if (callout === null) {
+      return;
+    }
+    foldCallout(callout, false);
+    hidden = callout.parentElement?.closest(HIDDEN_BY_CALLOUT) ?? null;
+  }
+}
+
+/**
+ * Lets the headings of a note be folded, as in the reading view of Obsidian:
+ * a triangle before a heading folds what is under it. Only the headings of
+ * the note itself, which are the blocks at its top level.
+ */
 export function addFolding(sizer: HTMLElement, triangle: string): void {
   for (const block of Array.from(sizer.children)) {
     const heading = headingOf(block);

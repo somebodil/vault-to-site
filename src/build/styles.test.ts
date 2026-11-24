@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { fileOfData, fontKey, quotedInSelector } from "./styles.ts";
+import { mentionFinder } from "./mentions.ts";
+import { comparedInSelector, fileOfData, fontKey, namesPathIn, URL_IN_CSS } from "./styles.ts";
 
 describe("fontKey", () => {
   it("is the same for the name of a font and the name of its file", () => {
@@ -38,13 +39,48 @@ describe("fileOfData", () => {
   });
 });
 
-describe("quotedInSelector", () => {
+describe("comparedInSelector", () => {
   it("gives what an attribute is compared with", () => {
-    assert.deepEqual(quotedInSelector('.workspace-tab-header[aria-label="Diary 2026"]'), ["Diary 2026"]);
-    assert.deepEqual(quotedInSelector("a[title^='My plan'], .x[data-kind *= \"a \\\" b\"]"), ["My plan", 'a \\" b']);
+    assert.deepEqual(comparedInSelector('.workspace-tab-header[aria-label="Diary 2026"]'), ["Diary 2026"]);
+    assert.deepEqual(comparedInSelector("a[title^='My plan'], .x[data-kind *= \"a \\\" b\"]"), ["My plan", 'a \\" b']);
   });
 
-  it("gives nothing for a selector without a comparison in quotes", () => {
-    assert.deepEqual(quotedInSelector('.callout[data-callout=note] > .x::before, a:not([href])'), []);
+  it("gives it also when it is written without quotes", () => {
+    assert.deepEqual(comparedInSelector(".workspace-tab-header[aria-label=Diary], a[ title |= Plan i ]"), ["Diary", "Plan"]);
+  });
+
+  it("gives nothing for a selector without a comparison, or with one of an attribute that holds a keyword", () => {
+    assert.deepEqual(comparedInSelector('.callout[data-callout=note] > .x::before, a:not([href])'), []);
+    assert.deepEqual(comparedInSelector('.callout[data-callout="todo"], input[TYPE="checkbox"], [svg|type=text], pre[class*=language-]'), []);
+  });
+});
+
+describe("namesPathIn", () => {
+  const outside = mentionFinder(["Private/Todo.md"]);
+  const names = (text: string): boolean => outside.names(text);
+
+  it("keeps a rule for a keyword that is also the name of a note outside the site", () => {
+    assert.equal(namesPathIn('.callout[data-callout="todo"]', names), false);
+    assert.equal(namesPathIn(".markdown-rendered [data-task=todo]", names), false);
+  });
+
+  it("leaves out a rule that picks an element by a path or by the name of such a note", () => {
+    assert.equal(namesPathIn('.nav-file-title[data-path="Todo.md"]', names), true);
+    assert.equal(namesPathIn('.workspace-tab-header[aria-label="Todo"]', names), true);
+    assert.equal(namesPathIn(".workspace-tab-header[aria-label=Todo]", names), true);
+    assert.equal(namesPathIn('.workspace-tab-header[aria-label="Settings"]', names), false);
+  });
+});
+
+describe("URL_IN_CSS", () => {
+  it("finds an address however `url` is written", () => {
+    const found: string[] = [];
+    const css = 'a{b:URL("app://local/Users/me/Vault/x.png")} c{d:Url( y.png )} e{f:url(\'z.png\')}';
+    const left = css.replace(URL_IN_CSS, (_whole, double: string | undefined, single: string | undefined, bare: string | undefined) => {
+      found.push((double ?? single ?? bare ?? "").trim());
+      return "url(-)";
+    });
+    assert.deepEqual(found, ["app://local/Users/me/Vault/x.png", "y.png", "z.png"]);
+    assert.equal(left, "a{b:url(-)} c{d:url(-)} e{f:url(-)}");
   });
 });

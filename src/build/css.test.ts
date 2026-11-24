@@ -26,6 +26,19 @@ describe("splitRules", () => {
     assert.equal(rules[1]?.block?.trim(), "background: url(data:image/svg+xml;utf8,<svg style='x{y}'/>);");
   });
 
+  it("takes a sign after a backslash as itself: a quote in a selector starts no string, a brace no block", () => {
+    // As a sheet made by Tailwind has it, for `after:content-['']`
+    const sheet = ".a\\[\\'\\'\\]::after {\n  --tw-content: '';\n  content: var(--tw-content);\n}\n.next { a: b }\n.c\\{d { e: f }";
+    assert.deepEqual(splitRules(sheet), [
+      { prelude: ".a\\[\\'\\'\\]::after", block: "\n  --tw-content: '';\n  content: var(--tw-content);\n" },
+      { prelude: ".next", block: " a: b " },
+      { prelude: ".c\\{d", block: " e: f " },
+    ]);
+    // The rule is closed, so the sheet after it stays outside it
+    assert.equal(text(sheet), ".a\\[\\'\\'\\]::after{\n  --tw-content: '';\n  content: var(--tw-content);\n}\n.next{ a: b }\n.c\\{d{ e: f }\n");
+    assert.equal(topRuleCount(sheet), 3);
+  });
+
   it("reads a block that is not closed to the end, and passes over an end without a start", () => {
     assert.deepEqual(splitRules("} a { b: c } d { e: f"), [
       { prelude: "a", block: " b: c " },
@@ -57,6 +70,11 @@ describe("rewriteCss", () => {
     assert.equal(text('.a{color:red; .b[data-path="x"]{c:d}} .e{f:g}', choice), ".e{f:g}\n");
   });
 
+  it("leaves out a rule that holds rules when what stands before its block is named by the choice", () => {
+    const choice: CssChoice = { drops: (selector) => selector.includes("Diary") };
+    assert.equal(text('@scope ([aria-label="Diary"]) { a{b:c} } @media print{ d{e:f} }', choice), "@media print{\nd{e:f}\n}\n");
+  });
+
   it("keeps the rules that hold no rules of the page as they are", () => {
     const css = "@keyframes spin{from{a:b}to{c:d}}\n@font-face{font-family:x;src:url(a.woff2)}\n@layer base, theme;\n@property --x{syntax:'*';inherits:false}\n";
     assert.equal(text(css, { drops: () => true }), css);
@@ -69,6 +87,16 @@ describe("rewriteCss", () => {
       { address: "local.css", rest: "" },
       { address: "bare.css", rest: "layer(x)" },
     ]);
+  });
+
+  it("knows a sheet that is taken in with no space before its address, as a sheet that was made small has it", () => {
+    assert.deepEqual(rewriteCss(`@import"https://fonts.example/a.css";@import'local.css'screen;a{b:c}`, keepAll), [
+      { address: "https://fonts.example/a.css", rest: "" },
+      { address: "local.css", rest: "screen" },
+      "a{b:c}\n",
+    ]);
+    // Not a rule that only starts with the same letters
+    assert.deepEqual(rewriteCss("@importurl(x.css);", keepAll), ["@importurl(x.css);\n"]);
   });
 });
 

@@ -49,6 +49,26 @@ describe("parseExcludeRules", () => {
     );
   });
 
+  it("reads a kind of letter, and a sign outside the basic plane as one sign", () => {
+    assert.equal(hides("^\\p{Lu}{2}-\\d+", "AB-12 Plan.md"), true);
+    assert.equal(hides("^\\p{Lu}{2}-\\d+", "12-AB Plan.md"), false);
+    assert.equal(hides("\\p{Script=Hangul}", "Notes/메모.md"), true);
+    assert.equal(hides("\\p{Script=Hangul}", "Notes/memo.md"), false);
+    // The two books and the lock share their first half
+    assert.equal(hides("^Notes/[📗📘]", "Notes/📗 Guide.md"), true);
+    assert.equal(hides("^Notes/[📗📘]", "Notes/🔒 Private.md"), false);
+    assert.deepEqual(parseExcludeRules("^\\p{Lu}, [📗📘]").invalid, []);
+  });
+
+  it("still takes a pattern that is written more loosely than Unicode allows", () => {
+    const rules = parseExcludeRules("^a\\-b, \\_x");
+    assert.deepEqual(rules.invalid, []);
+    assert.equal(rules.patterns.length, 2);
+    assert.equal(hides("^a\\-b, \\_x", "a-b.md"), true);
+    assert.equal(hides("^a\\-b, \\_x", "Notes/_x.md"), true);
+    assert.equal(hides("^a\\-b, \\_x", "ab.md"), false);
+  });
+
   it("names the patterns that are not valid, as they were written", () => {
     assert.deepEqual(parseExcludeRules("*.png, ^a/, +x").invalid, ["*.png", "+x"]);
     assert.deepEqual(parseExcludeRules("^a/").invalid, []);

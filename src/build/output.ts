@@ -77,8 +77,6 @@ export interface SiteOutput {
   finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }>;
   /** Gives up: what was written so far is not left behind as if it were a site */
   abort(): Promise<void>;
-  /** How many writes had to be done a second time */
-  rewritten: number;
   /** How many files of the vault may be copied at a time */
   readonly copiesAtATime: number;
 }
@@ -89,7 +87,7 @@ export interface SiteOutput {
  * leave it empty, about once in a few hundred files. Such a file is written
  * again.
  */
-async function checked(adapter: DataAdapter, full: string, size: number, write: () => Promise<void>, onRewrite: () => void): Promise<void> {
+async function checked(adapter: DataAdapter, full: string, size: number, write: () => Promise<void>): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     await write();
     const written = (await adapter.stat(full))?.size;
@@ -99,7 +97,6 @@ async function checked(adapter: DataAdapter, full: string, size: number, write: 
     if (attempt === WRITE_ATTEMPTS) {
       throw new Error(`"${full}" could not be written: it has ${String(written ?? "no")} bytes of ${String(size)}.`);
     }
-    onRewrite();
   }
 }
 
@@ -176,7 +173,6 @@ function folderOf(path: string): string {
  * is taken away.
  */
 export class FolderOutput implements SiteOutput {
-  rewritten = 0;
   /** Each copy is a file of its own, and nothing of it is held in memory */
   readonly copiesAtATime = 6;
   private bytes = 0;
@@ -215,6 +211,11 @@ export class FolderOutput implements SiteOutput {
       // extra file is left alone, whoever wrote it into the marker.
       const before = (marker?.extra ?? []).map((written) => (typeof written === "string" ? sitePath(written, SITE_NAMES) : null)).filter((path) => path !== null);
       await this.refuseTaken(new Set(before));
+      // The page goes first: without it a folder does not pass for a site, and taking the rest away can
+      // break off half way, as when the app is closed
+      if (await this.adapter.exists(this.root + "/index.html")) {
+        await this.adapter.remove(this.root + "/index.html");
+      }
       await this.removeExtra(before);
       for (const name of SITE_FOLDERS) {
         if ((await this.adapter.stat(this.root + "/" + name))?.type === "folder") {
@@ -222,7 +223,10 @@ export class FolderOutput implements SiteOutput {
         }
       }
       for (const name of SITE_FILES) {
-        if (await this.adapter.exists(this.root + "/" + name)) {
+        // The marker stays: a build writes it first of all, over the one that is there. Taken away here, a
+        // folder that still holds other files would be without it for a moment, and a build that broke off
+        // in that moment would leave a folder that every later build refuses.
+        if (name !== MARKER && (await this.adapter.exists(this.root + "/" + name))) {
           await this.adapter.remove(this.root + "/" + name);
         }
       }
@@ -236,7 +240,7 @@ export class FolderOutput implements SiteOutput {
 
   async binary(path: string, content: ArrayBuffer): Promise<void> {
     const full = await this.place(path);
-    await checked(this.adapter, full, content.byteLength, () => this.adapter.writeBinary(full, content), () => this.rewritten++);
+    await checked(this.adapter, full, content.byteLength, () => this.adapter.writeBinary(full, content));
     this.bytes += content.byteLength;
   }
 
@@ -252,7 +256,7 @@ export class FolderOutput implements SiteOutput {
       }
       await this.adapter.copy(from, full);
     };
-    await checked(this.adapter, full, size, write, () => this.rewritten++);
+    await checked(this.adapter, full, size, write);
     this.bytes += Math.max(0, size);
   }
 
@@ -341,7 +345,6 @@ export class FolderOutput implements SiteOutput {
  * that it need not fit into the memory of a phone.
  */
 export class ZipOutput implements SiteOutput {
-  rewritten = 0;
   /** A file is read whole to go into the archive: one at a time, so that only one is in memory */
   readonly copiesAtATime = 1;
   private readonly adapter: DataAdapter;
@@ -535,7 +538,7 @@ export class ZipOutput implements SiteOutput {
         await this.removePart();
         await this.adapter.writeBinary(this.part, buffer.buffer);
       };
-      await checked(this.adapter, this.part, buffer.length, write, () => this.rewritten++);
+      await checked(this.adapter, this.part, buffer.length, write);
     } else if (buffer.length > 0) {
       await this.adapter.appendBinary(this.part, buffer.buffer);
       const size = (await this.adapter.stat(this.part))?.size;
@@ -552,8 +555,9 @@ export class ZipOutput implements SiteOutput {
  * True when the file at a path is an archive that a build of this plugin
  * wrote: one that starts with the marker, as every such archive does.
  *
- * For where no record of what was written is kept, as in a run by a program:
- * there the archive of the run before is known by what it holds. The file is
+ * For where there is no record of what was written: in a run by a program,
+ * which saves nothing, and after the settings of the plugin were lost. There
+ * the archive of the build before is known by what it holds. The file is
  * read whole to look at its start, since Obsidian reads no part of a file.
  */
 export async function isSiteArchive(adapter: DataAdapter, path: string): Promise<boolean> {

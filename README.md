@@ -16,8 +16,8 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 The plugin is not in the list of community plugins of Obsidian yet. Until it is, put it into a vault by hand:
 
 1. From the [latest release](https://github.com/somebodil/vault-to-site/releases/latest), take `main.js`, `manifest.json` and `styles.css`.
-2. Put them into a folder `.obsidian/plugins/vault-to-site/` in your vault. On a phone, a file manager or the app you sync with can do this.
-3. In Obsidian, under **Settings → Community plugins**, turn **vault-to-site** on. Start Obsidian again if it is not listed.
+2. Put them into a folder `.obsidian/plugins/vault-to-site/` in your vault. `.obsidian` is a hidden folder: a file manager shows it only when it is told to show hidden files. On a phone, a file manager or the app you sync with can do this.
+3. In Obsidian, under **Settings → Community plugins**, turn Restricted mode off if it is on, then turn **vault-to-site** on. Start Obsidian again if it is not listed.
 
 The files of a release are built by GitHub from the commit of its tag, and carry a signed statement of that: `gh attestation verify main.js --repo somebodil/vault-to-site` checks it.
 
@@ -26,14 +26,14 @@ The files of a release are built by GitHub from the commit of its tag, and carry
 1. Run the command **vault-to-site: Build a site**, or tap its icon in the ribbon.
 2. Tick what goes into the site, and choose **Look over**.
 3. Read the list, and choose **Build**.
-4. The site is the archive `vault-to-site.zip` in your vault. Unpack it and open `index.html` with a browser. On a phone, **Share or open** hands the archive to another app. The archive holds a `README.txt` for the one who gets it: how to open the site, and how to put it on the web.
+4. The site is the archive `vault-to-site.zip` in your vault. Unpack it and open `index.html` with a browser. On a phone, **Share or open** hands the archive to another app. The archive holds a `README.txt` for the one who gets it: how to open the site, and how to put it on the web. For the web, see also [Putting the site on GitHub Pages](#putting-the-site-on-github-pages).
 
 ## The archive, or a folder
 
 Under **Written as** you choose what a build writes, and where, from the root of the vault:
 
 - **Zip archive** (to begin with, `vault-to-site.zip`): one file. The archive of the build before gives way only when the new one is whole: a build that is stopped or fails leaves it as it was. A file with that name that this plugin did not write is not written over: the build is refused, and you choose another name or remove the file. The same holds for a file that comes to that name while the site is built.
-- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it counts as a site of this plugin only by what its file `vault-to-site.json` says, not by a file of that name: any other folder with files in it is refused. So is a build when a file of yours lies where an extra file is to go: remove it, or give the extra file another path. A path with a part that is `.` or `..` is refused, for the folder and for the archive. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
+- **Folder** (to begin with, `.vault-to-site`): the same files, unpacked. A build takes away the site of the build before and nothing else in the folder, so a folder that is also a copy of a repository keeps its `.git`. A folder with files in it is written to only when it holds a `vault-to-site.json` that this plugin wrote. Any other folder with files in it is refused. So is a build when a file of yours lies where an extra file is to go: remove it, or give the extra file another path. A path with a part that is `.` or `..` is refused, for the folder and for the archive. Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of your vault.
 
 What a build has written is never part of a site, also after you give the archive or the folder another name. An archive or a folder that you rename or move away is put aside: the next build writes a new one where the setting says, and leaves the one you put aside alone. When you rename a folder above it, the setting follows. An archive or a folder that you delete is forgotten: a folder of notes that you make under its name later is a folder of notes.
 
@@ -41,13 +41,13 @@ If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip
 
 ## Building by a program
 
-The dialog is where you look over what goes in. A program has nobody to look: [obsidian-cmd-runner](https://github.com/somebodil/obsidian-cmd-runner) starts Obsidian without its window, on a build server after a push or from a script, and runs the command **Build a site** there. No dialog opens then, and the site is built at once.
+A program has nobody to look at a dialog: [obsidian-cmd-runner](https://github.com/somebodil/obsidian-cmd-runner) starts Obsidian without its window, on a build server after a push or from a script, and runs the command **Build a site** there. No dialog opens then, and the site is built at once. Install the runner with `npm install -g obsidian-cmd-runner` (Node.js 22.18 or later, on Linux or macOS).
 
 ```sh
 obsidian-cmd-runner --vault notes --plugin somebodil/vault-to-site --command vault-to-site:build
 ```
 
-Told nothing more, it goes by what the plugin has saved in the vault. Where nothing is ticked, the whole vault goes in, and where no place is named, the site is an archive `vault-to-site.zip` in the vault. What goes in is better said, and said by a mark on each note, so that a note does not go in by being new:
+Told nothing more, it goes by what the plugin has saved in the vault, in `.obsidian/plugins/vault-to-site/data.json`. Without that file, as in a fresh copy of a repository that does not hold it, it goes by the settings the plugin begins with, which still leave out `type: private` and `publish: false`. Where nothing is ticked, the whole vault goes in, and where no place is named, the site is an archive `vault-to-site.zip` in the vault. It is better to say in the run what goes in, by a property that every note of the site must have. Then a new note does not go in only because it is there:
 
 ```json
 {
@@ -65,7 +65,15 @@ obsidian-cmd-runner --vault notes --plugin somebodil/vault-to-site \
   --command vault-to-site:build --arg "settings=$(cat notes/site.json)"
 ```
 
-The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `include`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A name that is not one of these, or a value of the wrong kind, as a list where text is read, makes the run fail and is named: no setting is passed over. Because nothing is saved, a run knows the archive of the run before by what it holds and writes over it; any other file at its place is refused. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
+The file holds the settings of the dialog under the names `ticks`, `exclude`, `properties`, `include`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`.
+
+- **`ticks`** has the lists `on` and `off`: paths from the root of the vault, where `""` is the whole vault, and `Private/` and `/Private` mean `Private`. A path that is no folder and no file of the vault makes the run fail and is named. A path that is in both lists is left out.
+- **Each name takes the place of what is saved,** as a whole, and what is not named stays as it is saved. So a run that gives `ticks` gives both lists: what you left out in the dialog is not kept.
+- **Nothing of a run is saved.** The archive of the run before is known by what it holds, and is written over.
+- **No setting is passed over.** A name in the file that is not one of the nine above, or a value of the wrong kind, as a list where text is read, makes the run fail and is named. A run that is given other names and no `settings`, as when the word is written wrong, does not fail: it names them in one line and goes by what is saved.
+- **`width`** is given beside the settings (`--arg width=900`): how wide a note is taken to be, in pixels, for what is drawn to fit it, as a diagram is. To begin with it is 1100, the width of a window on a computer. A width that is not a number from 320 to 10000 makes the run fail.
+- **The run gives back** which notes went in, how many were kept out by each rule, and what the look for names found. The runner prints it as JSON with `--json`.
+- **A note that cannot be drawn makes the run fail,** before the site takes its place. An archive of the run before stays as it was. A folder has lost the site of the run before by then, and is left without `index.html`.
 
 ## What the site has
 
@@ -79,13 +87,13 @@ The file holds the settings of the dialog under the names `ticks` (`on` and `off
 - **Dark and light**, as Obsidian was when the site was built, with a button to change it
 - **An address for every note**, so the back and forward buttons of the browser work, a note that you come back to is where you left it, and a note or a heading can be bookmarked
 
-On a narrow window, as on a phone, the two sides lie under the note, and the note moves aside for them: by their buttons, or with a finger. A finger that moves the note to the right uncovers the files, one that moves it to the left the outline, and the other way covers them again. The note follows the finger, and where it is let go decides: past the middle, or flicked, and the side stays open. A wide table or a block of code is still moved sideways inside itself. This is made for Chrome and the browsers built on it, as Edge.
+On a narrow window, as on a phone, the two sides lie under the note, and the note moves aside for them: by their buttons, or with a finger. A finger that moves the note to the right uncovers the files, one that moves it to the left the outline, and the other way covers them again. The note follows the finger, and where it is let go decides: past the middle, or flicked, and the side stays open. A wide table or a block of code is still moved sideways inside itself. Moving the note with a finger is made for Chrome and the browsers built on it, as Edge.
 
 ## Choosing what goes in
 
 These decide, in this order. A rule always wins over a tick, and a rule that leaves out wins over one that takes in.
 
-1. **The ticks.** A ticked folder takes in everything inside it, also what you add later. Take the tick off a folder or a note inside it to leave that out. What is left out stays left out when you rename or move it in Obsidian. A rename that Obsidian cannot see, as one that a sync brings, is not followed: the dialog then names the path that is gone, because what it was is ticked again under its new name.
+1. **The ticks.** A ticked folder takes in everything inside it, also what you add later. Take the tick off a folder or a note inside it to leave that out. What is left out stays left out when you rename or move it in Obsidian. A rename that Obsidian does not see, as one that a sync brings, is not followed, and the note is ticked again under its new name. The dialog names the old path, so that you can take the tick off again.
 2. **Leave out by path.** JavaScript regular expressions, separated by commas. A path that one of them matches stays out. Upper and lower case are the same.
 
    | Input               | What stays out                                 |
@@ -106,17 +114,17 @@ These decide, in this order. A rule always wins over a tick, and a rule that lea
    | `tags: /^draft/`             | A note with a tag that starts with `draft`      |
    | `status: /wip/`              | A note whose `status` has `wip` somewhere in it |
 
-   A value with one slash, or with nothing between two, is plain text. A plain value that has two slashes or more, as `/usr/bin`, is read as an expression with flags: write it as one, `/^\/usr\/bin$/`.
+   A value is read as an expression when it starts with a slash and ends with a second slash, or with a second slash and letters after it. So `a/b/c` and `//` are plain text, but `/usr/bin` is read as an expression with the flags `bin`, which does not work: write it as one, `/^\/usr\/bin$/`.
 
    A pattern that is not a regular expression, or a line that is not a property, keeps nothing out. The dialog says which one it is, and no site is built until it is corrected or taken out.
 4. **Take in only by path.** Regular expressions, separated by commas, written as under **Leave out by path**. When there is one, a ticked note goes in only when one of them matches its path; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. With the whole vault ticked, `^Guide/, ^Notes/20\d\d-` takes of it the folder `Guide` and the notes of `Notes` that start with a year.
 
    Only notes are asked for a pattern. A picture or another file goes in with the note that uses it, wherever it lies.
-5. **Take in only by property.** One property a line, as `publish: true`, with a value between slashes for a regular expression as above. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that is built with nobody looking the list over: a note does not go in by being new.
+5. **Take in only by property.** One property a line, as `publish: true`, with a value between slashes for a regular expression as above. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that a program builds: see [Building by a program](#building-by-a-program).
 
-   **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
+6. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a canvas or a base, a path where the site itself writes, as `index.html`, or two paths of which one lies inside the other, as `a` and `a/b.pdf`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
 
-6. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a path where the site itself writes, as `index.html`, or two paths of which one lies inside the other, as `a` and `a/b.pdf`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
+**A note whose properties are not known always stays out,** whichever rules are set: one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
 **Ticks are for notes.** A picture or another file that is not a note is never chosen by a tick, and it is not in the tree. It goes into the site when a note of the site uses it, and only then. So ticking the whole vault does not put the pictures of a private note into the site, nor a file that lies in a folder of private notes and that no note links to. To have a file in the site, link to it or embed it in a note of the site.
 
@@ -128,20 +136,20 @@ A note that is not part of the site leaves nothing in it:
 
 - It is not in the list of files, not in the search, and not among the backlinks.
 - **An embed of it is emptied,** also an embed inside an embedded note. Obsidian puts the text of an embedded note into the note that embeds it. The build takes it out again, and the site says "Not part of this site" in its place.
-- **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link. Where the link led is removed, and the search finds only the words that show.
+- **A link to it leads nowhere.** The words the link shows stay, because they are part of the note that has the link: a link written without other words shows the name of its note. Where the link led is removed, and the search finds only the words that show.
 - **Its pictures stay out with it,** unless a note of the site uses them too.
 
 The same holds for what reaches the site without being drawn by Obsidian: a link in a property or in a heading is shown as its words. An address that opens Obsidian (`obsidian://`) is taken out, because it holds the name of the vault and the path of a note. What is written as HTML in a note keeps an address (`href`, `src`, a picture in a `style`) only when it leads to the web, to a place on its own page, or to a file of the site. A style rule of a plugin or a snippet that names a folder of the vault, or a note that is not in the site, is not copied.
 
-The step **Look over** lists the links and embeds that are cut this way.
+The step **Look over** lists the links and embeds that are cut: those that Obsidian knows as links. An address written as HTML is taken out without being listed.
 
 **A build is what you looked over.** If the vault changes between the list and the build so that other notes or files would go in, the build is not done, and you look again.
 
-**A name can still show.** The build cannot know every way a name gets onto a page: the words of a link, a sentence that mentions the note, or what another plugin writes when a note is drawn, such as a query that lists notes. So after a build, the words of every page are looked through for the names of the notes that a rule keeps out, and the dialog says which name shows where. The names it looks for are those of every note a rule is meant for, ticked or not. It changes nothing: whether a name may show is for you to say.
+**A name can still show.** The build cannot know every way a name gets onto a page: the words of a link, a sentence that mentions the note, or what another plugin writes when a note is drawn, such as a query that lists notes. So after a build, the words of every page are looked through for names, and the dialog says which name shows where. The names are those of the notes that are left out by path or by property, and of the notes whose properties are not known, ticked or not. Not looked for: the name of a note that is out only because it is not ticked or lacks what a rule to take in asks for, and a name shorter than three signs. It changes nothing: whether a name may show is for you to say.
 
 ## Putting the site on GitHub Pages
 
-The folder of the site is ready for it: every address in it is relative, and it has the `.nojekyll` file that GitHub Pages needs to serve all of it. Put the content of the folder into the repository or the branch that your pages are served from. A build of the same notes gives the same files, so a commit of the site shows only what has changed.
+A site that is built as a folder (**Written as**), or an archive that is unpacked, is ready for it: every address in it is relative, and it has the `.nojekyll` file that GitHub Pages needs to serve all of it. Put the content of the folder into the repository or the branch that your pages are served from. A build of the same notes gives the same files, so a commit of the site shows only what has changed.
 
 **A site on GitHub Pages can be read by everyone.** Look over the list before you build for it.
 
@@ -159,7 +167,6 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **The search block and the base block of Obsidian are emptied.** A block that starts with `query` lists lines of other notes, and one that starts with `base` lists notes and their properties, whatever they are.
 - **A link to a block leads to its note,** not to the block.
 - **A site is written inside the vault,** because that is where a plugin may write on a phone.
-- **In a link to a note outside the site, the words stay.** A link written without other words shows the name of its note.
 
 ## What was tried, and what was not
 
@@ -180,7 +187,7 @@ You need [Node.js](https://nodejs.org) 24 or later.
 
 ```bash
 npm install
-npm run dev     # rebuilds main.js on every change
+npm run dev     # rebuilds main.js on every change, but not for src/viewer: start it again
 npm run check   # type check, lint, and tests
 npm run build   # type check, then the main.js of a release
 ```

@@ -178,6 +178,37 @@ export function givenProblems(given: Record<string, unknown>): string[] {
   return problems;
 }
 
+/**
+ * The ticks a run by a program was given, each path in the form the vault
+ * has its paths in, and what is wrong with them: a path that is no folder
+ * and no file of the vault.
+ *
+ * A tick is compared with a path as it is written. `Private/`, `/Private`
+ * or a name with its letters taken apart is a tick that is meant for
+ * nothing, and so is a path with a mistake in it: the folder that was to be
+ * left out stays in, and nobody looks the site over.
+ *
+ * @param normal makes a path as it is written into the form the vault has
+ * @param has true for a folder or file of the vault. The whole vault, the empty path, is not asked for.
+ */
+export function givenTicks(ticks: Ticks, normal: (path: string) => string, has: (path: string) => boolean): { ticks: Ticks; problems: string[] } {
+  const problems: string[] = [];
+  const read = (list: "on" | "off"): string[] => {
+    const paths = ticks[list].map((written) => {
+      // The whole vault is the empty path, also when it is written as a slash: made normal, both are a slash
+      const path = written === "" ? "" : normal(written);
+      return path === "/" ? "" : path;
+    });
+    for (const [at, path] of paths.entries()) {
+      if (path !== "" && !has(path)) {
+        problems.push(`"ticks.${list}" names "${ticks[list][at] ?? path}", which is not a folder or file of the vault.`);
+      }
+    }
+    return [...new Set(paths)].sort();
+  };
+  return { ticks: { on: read("on"), off: read("off") }, problems };
+}
+
 /** Reads what was saved, and takes the default for what is missing or of the wrong kind */
 export function readSettings(saved: unknown): Settings {
   const data = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;

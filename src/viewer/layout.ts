@@ -33,7 +33,7 @@ const REST = 60;
  * the more notes, the shorter the reach. A step for 3000 notes takes 6 ms
  * with it and 20 ms without.
  */
-export function reachOf(count: number): number {
+function reachOf(count: number): number {
   return Math.max(80, Math.min(240, (240 * 1000) / Math.max(1, count)));
 }
 
@@ -161,6 +161,24 @@ export function step(graph: Graph): number {
     moved += Math.abs(node.vx) + Math.abs(node.vy);
   }
   return nodes.length === 0 ? 0 : moved / nodes.length;
+}
+
+/**
+ * How the dot of a note is painted, as one of four: 0 a note out of the
+ * light, 1 a marked note out of the light, 2 a note, 3 a marked note. A
+ * marked note is the one that is open or the one under the pointer. While
+ * the pointer is on a note, only that note and the notes it has links with
+ * are in the light.
+ *
+ * The dots of one kind are painted in one go: a site of thousands of notes
+ * is then four fills and not thousands.
+ *
+ * @param near the places of the notes that have a link with the note under the pointer, or null with no note under it
+ */
+export function paintOf(at: number, focus: number, hovered: number, near: ReadonlySet<number> | null): number {
+  const isMarked = at === focus || at === hovered;
+  const isInLight = near === null || at === hovered || near.has(at);
+  return (isInLight ? 2 : 0) + (isMarked ? 1 : 0);
 }
 
 /** The smallest box around all notes */

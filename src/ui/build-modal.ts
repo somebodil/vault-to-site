@@ -156,13 +156,24 @@ export class BuildModal extends Modal {
           }
           return line;
         }
+        // Opening or closing a folder changes neither the ticks nor what a build would hold: only the rows of
+        // this folder are made or taken away, with the counts this drawing of the tree has worked out
         const toggle = (): void => {
-          if (this.openFolders.has(path)) {
-            this.openFolders.delete(path);
-          } else {
+          const isOpen = !this.openFolders.has(path);
+          if (isOpen) {
             this.openFolders.add(path);
+            const children = createDiv({ cls: "vault-to-site-children" });
+            line.after(children);
+            draw(children, folder);
+          } else {
+            this.openFolders.delete(path);
+            // The rows of an open folder are in the element right after its own row
+            const children = line.nextElementSibling;
+            if (children?.hasClass("vault-to-site-children") === true) {
+              children.remove();
+            }
           }
-          drawTree();
+          arrow.setText(isOpen ? "▾" : "▸");
         };
         arrow.setText(this.openFolders.has(path) ? "▾" : "▸");
         arrow.addClass("is-folder");
@@ -311,7 +322,7 @@ export class BuildModal extends Modal {
         .setDesc(
           isZip
             ? "One zip archive, from the root of the vault. Unpack it to read the site. A build writes over the archive of the build before."
-            : "A folder, from the root of the vault. A build empties this folder first.",
+            : "A folder, from the root of the vault. A build takes away the site of the build before and nothing else in the folder. A folder with files that is not a site of this plugin is refused.",
         )
         .addDropdown((dropdown) => {
           dropdown
@@ -533,7 +544,6 @@ export class BuildModal extends Modal {
         },
         this.stop,
       );
-      await this.host.save();
       const lines = [
         `${count(result.notes, "note")} and ${count(result.files, "other file")}, ${size(result.bytes)}, in ${(result.millis / 1000).toFixed(1)} seconds.`,
         this.settings.format === "zip"

@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findLines, foldedNameScore, foldName, haystack, nameScore } from "./find.ts";
+import { findLines, foldedNameScore, foldName, haystack, inOrder, missingParts, nameScore } from "./find.ts";
+
+describe("the parts of the texts", () => {
+  it("names the parts that are not there, also behind the last one that is", () => {
+    const parts: unknown[] = [];
+    assert.deepEqual(missingParts(parts, 3), [0, 1, 2]);
+    parts[2] = [];
+    assert.deepEqual(missingParts(parts, 3), [0, 1]);
+    parts[0] = [];
+    parts[1] = [];
+    assert.deepEqual(missingParts(parts, 3), []);
+    assert.deepEqual(missingParts([], 0), []);
+  });
+
+  it("gives the texts in the order of the parts, whichever came first", () => {
+    const parts: ReturnType<typeof haystack>[][] = [];
+    parts[2] = [haystack("e", "five")];
+    parts[0] = [haystack("a", "one"), haystack("b", "two")];
+    assert.deepEqual(
+      inOrder(parts).map((hay) => hay.id),
+      ["a", "b", "e"],
+    );
+    parts[1] = [haystack("c", "three")];
+    assert.deepEqual(
+      inOrder(parts).map((hay) => hay.id),
+      ["a", "b", "c", "e"],
+    );
+  });
+});
 
 describe("nameScore", () => {
   it("puts the whole name first, then the start, a word, the middle, and letters in order", () => {

@@ -81,6 +81,18 @@ describe("shownWords", () => {
     }
   });
 
+  it("does not take a type with a default for a tag", () => {
+    assert.equal(shownWords("Partial<T = unknown> explained"), "Partial<T = unknown> explained");
+    assert.equal(shownWords("`useState<S = undefined>()`"), "`useState<S = undefined>()`");
+    assert.deepEqual(shownValue({ sig: "f<K extends string = any>(x)" }), { sig: "f<K extends string = any>(x)" });
+  });
+
+  it("still takes a tag out whose attribute has room around its `=`, or stands after another", () => {
+    assert.equal(shownWords('<a href = "Private/Secret.md">x</a>'), "x");
+    assert.equal(shownWords("<a class=y href='Private/Secret.md'>x</a> <img alt src=Private/pic.png>"), "x ");
+    assert.equal(shownWords("<a\thref=Private/Secret.md>x</a>"), "x");
+  });
+
   it("leaves text without links as it is", () => {
     assert.equal(shownWords("a [b] c (d) [[ e"), "a [b] c (d) [[ e");
     assert.equal(shownWords("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");

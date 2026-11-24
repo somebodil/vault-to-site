@@ -12,8 +12,8 @@ export interface ExtraFile {
   from: string;
 }
 
-/** What a file of the vault is to the choice of extra files */
-export type KindOfPath = "file" | "note" | "none";
+/** What a file of the vault is to the choice of extra files. `undrawn` is a canvas or a base: see `VaultFile.undrawn`. */
+export type KindOfPath = "file" | "note" | "undrawn" | "none";
 
 /**
  * A path as it may be written for a file in a site, or null when a site
@@ -61,7 +61,9 @@ function foldersOf(path: string): string[] {
  * A file that is named here goes in whatever the ticks and the other rules
  * say: it is named one by one, by its whole path. A note is not taken: a
  * note goes into a site only as a note, by the ticks and the rules, and as
- * a file it would carry its properties and what it links to.
+ * a file it would carry its properties and what it links to. Nor is a canvas
+ * or a base, which the choice keeps out for the same reason: as a plain file
+ * it would carry the paths and the text it holds.
  *
  * @param kindOf what there is at a path of the vault
  * @param normal makes a path as it is written in a setting into the form the vault has
@@ -99,6 +101,10 @@ export function planExtra(
     }
     if (kind === "note") {
       invalid.push(`"${written}" is a note: a note goes into the site by the ticks and the rules only.`);
+      continue;
+    }
+    if (kind === "undrawn") {
+      invalid.push(`"${written}" is a canvas or a base: the site cannot draw it, and as a file it would carry the paths and the text it holds.`);
       continue;
     }
     const key = to.toLowerCase();

@@ -27,4 +27,13 @@ describe("extensionOf", () => {
     assert.equal(extensionOf(".hidden"), "");
     assert.equal(extensionOf("x.tar.gz"), "gz");
   });
+
+  it("is none when it is not letters and digits, ten at most", () => {
+    // Such an ending would cut the address of the file, or be a name that some systems cannot have
+    for (const path of ["a.png?raw=true", "notes.c#", "report.100%", "photo.jpg:large", "a.b c", "x.한글", "a.", "x.abcdefghijk"]) {
+      assert.equal(extensionOf(path), "", path);
+    }
+    assert.equal(extensionOf("x.abcdefghij"), "abcdefghij");
+    assert.equal(extensionOf("movie.MP4"), "mp4");
+  });
 });

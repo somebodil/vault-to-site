@@ -17,8 +17,13 @@ import type { PropertyValue } from "../site-format.ts";
  * `Vec<T, A>`, an address of the web in angle brackets.
  */
 
-/** A tag of HTML with an attribute that has a value, as `<a href="...">`: the value can be an address */
-const TAG_WITH_VALUE = /<([A-Za-z][A-Za-z0-9-]*)\s[^<>\n]*=[^<>\n]*>/g;
+/**
+ * A tag of HTML with an attribute that has a value, as `<a href="...">`: the
+ * value can be an address. The name of the attribute stands right before the
+ * `=`, or with room around the `=` before a value in quotes. So a type with a
+ * default, as `Partial<T = unknown>`, is no tag: nothing is named before its `=`.
+ */
+const TAG_WITH_VALUE = /<([A-Za-z][A-Za-z0-9-]*)\s(?:[^<>\n]*\s)?[^\s<>="'/]+(?:=|\s*=\s*["'])[^<>\n]*>/g;
 /** An address that leads into Obsidian or to a file of the device */
 const INNER_ADDRESS = /\b(?:obsidian|app|capacitor|file):\/\/[^\s)>\]"']*/gi;
 

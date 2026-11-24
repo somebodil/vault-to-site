@@ -63,6 +63,33 @@ export function haystack(id: string, text: string): Haystack {
   return { id, text: folded.length === text.length ? text : folded, folded };
 }
 
+/**
+ * The numbers of the parts of the texts that are not there, of as many parts
+ * as the site has: the ones to ask for. A part is kept at its number.
+ */
+export function missingParts(parts: readonly unknown[], count: number): number[] {
+  const missing: number[] = [];
+  for (let part = 0; part < count; part++) {
+    if (parts[part] === undefined) {
+      missing.push(part);
+    }
+  }
+  return missing;
+}
+
+/**
+ * The texts of the parts that are there, in the order of their numbers. The
+ * parts arrive in whatever order the network brings them. In the order of
+ * their numbers, a search finds the same lines first every time.
+ */
+export function inOrder(parts: readonly (readonly Haystack[] | undefined)[]): Haystack[] {
+  const texts: Haystack[] = [];
+  for (let part = 0; part < parts.length; part++) {
+    texts.push(...(parts[part] ?? []));
+  }
+  return texts;
+}
+
 export interface LineHit {
   /** The line, cut to what fits a row, with the place of the match in it */
   text: string;

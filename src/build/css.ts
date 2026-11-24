@@ -60,7 +60,8 @@ function afterBareUrl(text: string, at: number): number {
 
 /**
  * Goes through a text from `from` and calls `at` for every sign that stands
- * in the open: not in a string, a comment or an address without quotes.
+ * in the open: not in a string, a comment or an address without quotes, and
+ * not after a backslash.
  * `at` answers where to go on, or -1 to end. Comments are given to `skipped`.
  */
 function walk(text: string, from: number, at: (sign: string, i: number) => number, skipped?: (start: number, end: number) => void): void {
@@ -71,6 +72,9 @@ function walk(text: string, from: number, at: (sign: string, i: number) => numbe
       const end = afterComment(text, i);
       skipped?.(i, end);
       i = end;
+    } else if (sign === "\\") {
+      // The sign after a backslash is only itself: `\'` in a selector starts no string, and `\{` no block
+      i += 2;
     } else if (QUOTE.has(sign)) {
       i = afterString(text, i);
     } else if ((sign === "u" || sign === "U") && afterBareUrl(text, i) !== -1) {
@@ -157,7 +161,8 @@ export interface CssChoice {
 
 /** Rules whose block holds rules again */
 const HOLDS_RULES = /^@(media|supports|layer|container|document|scope|starting-style)\b/i;
-const IMPORT = /^@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)|"([^"]*)"|'([^']*)')\s*([\s\S]*)$/i;
+/** An address in quotes may follow `@import` with no space, as a sheet that was made small has it: `@import"x.css"` */
+const IMPORT = /^@import(?:\s+url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)|\s*"([^"]*)"|\s*'([^']*)')\s*([\s\S]*)$/i;
 
 /**
  * The text of a sheet for the site: every rule as it was written, without
@@ -185,6 +190,10 @@ export function rewriteCss(text: string, choice: CssChoice): CssPiece[] {
       }
       pieces.push({ address: (taken[1] ?? taken[2] ?? taken[3] ?? taken[4] ?? taken[5] ?? "").trim(), rest: (taken[6] ?? "").trim() });
     } else if (HOLDS_RULES.test(prelude)) {
+      // What stands before the block can pick an element as a selector does: `@scope ([aria-label="Diary"])`
+      if (choice.drops(prelude, "")) {
+        continue;
+      }
       const inner = rewriteCss(block, choice)
         .filter((piece): piece is string => typeof piece === "string")
         .join("");

@@ -74,7 +74,7 @@ export function planSite(app: App, settings: Settings, files: readonly VaultFile
   ];
   if (settings.extra.trim() !== "") {
     // What a build writes is not among the files, so a site of an earlier build cannot be named
-    const kinds = new Map<string, KindOfPath>(files.map((file) => [file.path, file.isNote ? "note" : "file"]));
+    const kinds = new Map<string, KindOfPath>(files.map((file) => [file.path, file.isNote ? "note" : file.undrawn === true ? "undrawn" : "file"]));
     const extra = planExtra(settings.extra, (path) => kinds.get(path) ?? "none", normalizePath, SITE_NAMES);
     choice.extra = extra.files;
     invalid.push(...extra.invalid);

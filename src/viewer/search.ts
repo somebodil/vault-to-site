@@ -5,8 +5,14 @@ import { titleOf } from "./note.ts";
 
 export interface SearchHost {
   index: SiteIndex;
-  /** The texts of the notes, once they are loaded. Starts the loading when asked the first time: a search by name does not need them. */
-  texts(): { ready: Haystack[]; loading: Promise<void> | null };
+  /** The texts of the notes that are loaded, in the order of the site */
+  texts(): readonly Haystack[];
+  /**
+   * Asks for the texts that are not there: a search by name does not need
+   * them. Gives back what ends when they have arrived or could not be
+   * loaded, and null when all of them are there.
+   */
+  load(): Promise<void> | null;
   /** Opens a note, and shows what was found in it when that is given */
   go(id: string, find: Found | null): void;
 }
@@ -66,7 +72,7 @@ export function createSearch(host: SearchHost): Search {
 
     let rows: { el: HTMLElement; go: () => void }[] = [];
     let selected = 0;
-    let isWaitingForTexts = false;
+    let hasAskedForTexts = false;
     const select = (at: number, scroll: boolean): void => {
       rows[selected]?.el.classList.remove("is-selected");
       selected = Math.max(0, Math.min(at, rows.length - 1));
@@ -106,18 +112,19 @@ export function createSearch(host: SearchHost): Search {
         row(entry.title, folderOf(entry.path), () => host.go(entry.id, null));
       }
       if (typed.length >= 2) {
-        const { ready, loading } = host.texts();
-        if (!isWaitingForTexts) {
-          // The texts arrive after they are asked for: the search is done again when they are there
-          isWaitingForTexts = true;
-          void loading?.then(() => {
+        if (!hasAskedForTexts) {
+          // Once for each time the search is opened, not at every key: a part that could not be loaded is asked for again the next time
+          hasAskedForTexts = true;
+          // The texts arrive after they are asked for: the search is done again when they are there.
+          // With all of them there, nothing is waited for, and nothing is searched a second time.
+          void host.load()?.then(() => {
             if (modal === mine && input.value.trim().length >= 2) {
               draw();
             }
           });
         }
         let shown = 0;
-        for (const hay of ready) {
+        for (const hay of host.texts()) {
           if (shown >= MOST_LINES) {
             break;
           }
