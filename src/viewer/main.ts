@@ -1,6 +1,6 @@
 import { readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
-import { haystack, inOrder, missingParts, type Haystack } from "./find.ts";
+import { haystack, missingParts, type Haystack } from "./find.ts";
 import { addFolding, foldCallout, openCallouts, unfoldFor } from "./fold.ts";
 import { graphView } from "./graph.ts";
 import { dressEmbeds, dressLists } from "./dress.ts";
@@ -30,7 +30,7 @@ import { buildTree, firstNote, treeView } from "./tree.ts";
 const pages = new Map<string, NotePage>();
 const MOST_PAGES = 60;
 /** The texts to search in, as the scripts of the data hand them over: each part at its number, in whatever order they arrive */
-const textParts: (Haystack[] | undefined)[] = [];
+const textParts: Haystack[][] = [];
 /** The same texts in the order of the parts. Made again when a part arrives, not at every key. */
 let texts: Haystack[] = [];
 
@@ -50,7 +50,8 @@ const site: SiteGlobal = {
   },
   search(part, entries) {
     textParts[part] = entries.map(([id, text]) => haystack(id, text));
-    texts = inOrder(textParts);
+    // In the order of their numbers, whichever came first: a search finds the same lines first every time
+    texts = textParts.flat();
   },
 };
 (window as unknown as { __site: SiteGlobal }).__site = site;
@@ -164,8 +165,7 @@ function start(index: SiteIndex): void {
     kept.set("folders", JSON.stringify([...openFolders]));
   });
   const sizer = el("div", { cls: "markdown-preview-sizer markdown-preview-section" });
-  // A site of an earlier build does not say how the view was set: then as Obsidian is at first
-  const viewClass = typeof index.viewClass === "string" ? index.viewClass : "is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties";
+  const viewClass = index.viewClass;
   const canFold = (what: "headings" | "lists"): boolean => ` ${viewClass} `.includes(` allow-fold-${what} `);
   const triangle = icons["right-triangle"] ?? "";
   // A box of a task or of a property shows what the note says. It is not for ticking: nothing would keep the tick.
@@ -199,8 +199,8 @@ function start(index: SiteIndex): void {
   }
   const titleParent = el("div", { cls: "view-header-title-parent" });
   const title = el("div", { cls: "view-header-title" });
-  const outline = el("div", { cls: "v2s-pane-body" });
-  const backlinks = el("div", { cls: "v2s-pane-body" });
+  const outline = el("div");
+  const backlinks = el("div");
 
   // ---- Graphs: the one of the note that is open, at the side, and the one of the whole site ----
   // A color is a variable of the style sheets of Obsidian. An element is given it, and the browser says what it paints.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateRawSync } from "node:zlib";
 import type { DataAdapter } from "obsidian";
-import { FolderOutput, isInWork, isSiteArchive, MARKER, markerText, readMarker, wayToken, WORK, ZipOutput, zipPath } from "./output.ts";
+import { FolderOutput, isSiteArchive, MARKER, markerText, readMarker, wayToken, WORK, ZipOutput, zipPath } from "./output.ts";
 
 /** What the outputs use of the adapter of Obsidian, kept in memory */
 class MemoryAdapter {
@@ -206,15 +206,6 @@ const TOKEN = "t0k3n";
 const MINE = WORK + "/" + TOKEN;
 
 describe("the folder that builds write in", () => {
-  it("is known with what lies inside, also where a disk takes capital letters for small ones", () => {
-    for (const path of [WORK, WORK + "/k3j9x2a1", WORK + "/k3j9x2a1/data/n/a.js", ".Vault-To-Site-Cache/k3j9x2a1/new.zip"]) {
-      assert.equal(isInWork(path), true, path);
-    }
-    for (const path of ["site.zip", ".vault-to-site/data/n/a.js", WORK + "-of-mine/a.md", "Notes/" + WORK + "/a.md"]) {
-      assert.equal(isInWork(path), false, path);
-    }
-  });
-
   it("has a folder for each build, with a name that differs from build to build", () => {
     const drawn = new Set(Array.from({ length: 50 }, () => wayToken()));
     assert.equal(drawn.size, 50);
@@ -359,13 +350,12 @@ describe("FolderOutput", () => {
     for (const folder of [WORK, WORK + "/0ld0ne00", WORK + "/0ld0ne00/data", WORK + "/an0ther0"]) {
       adapter.folders.add(folder);
     }
-    for (const file of [WORK + "/0ld0ne00/index.html", WORK + "/0ld0ne00/data/index.js", WORK + "/an0ther0/site.zip", WORK + "/stray.txt", "site.v2s-part-0ld0ne00", "notes.md"]) {
+    for (const file of [WORK + "/0ld0ne00/index.html", WORK + "/0ld0ne00/data/index.js", WORK + "/an0ther0/site.zip", WORK + "/stray.txt", "notes.md"]) {
       adapter.files.set(file, new Uint8Array(100));
     }
     await new FolderOutput(adapter.asAdapter, "site", [], TOKEN).prepare();
     assert.deepEqual([...adapter.folders].sort(), [WORK, MINE]);
-    // Nothing outside that folder is looked for by its name
-    assert.deepEqual([...adapter.files.keys()].sort(), ["notes.md", "site.v2s-part-0ld0ne00"]);
+    assert.deepEqual([...adapter.files.keys()], ["notes.md"]);
     await new ZipOutput(adapter.asAdapter, "site.zip", false, undefined, "sec0nd").prepare();
     assert.deepEqual([...adapter.folders].sort(), [WORK, WORK + "/sec0nd"]);
   });

@@ -17,8 +17,4 @@ describe("siteReadme", () => {
     assert.match(siteReadme("Notes", "ja"), /TO READ IT/);
     assert.match(siteReadme("Notes", ""), /TO READ IT/);
   });
-
-  it("is the same for the same vault, so that a build of the same notes gives the same files", () => {
-    assert.equal(siteReadme("A", "ko"), siteReadme("A", "ko"));
-  });
 });

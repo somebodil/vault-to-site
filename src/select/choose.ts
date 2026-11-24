@@ -160,36 +160,10 @@ export function choose(files: readonly VaultFile[], rules: ChoiceRules): Choice 
 
 /**
  * A sign of what a choice holds: two choices with the same notes and files
- * have the same.
- *
- * It is short whatever the size of the vault: a number of 64 bits, worked
- * out from every path, as 16 digits to the base of 16. It is not saved: the
- * step that shows the list hands it to the build, and the build works it out
- * again, so that a vault that has changed since the list was looked over is
- * told. It is not made to hold against someone who looks for two choices
- * with the same sign.
+ * have the same. It is not saved: the step that shows the list hands it to
+ * the build, and the build works it out again, so that a vault that has
+ * changed since the list was looked over is told.
  */
 export function signatureOf(choice: Choice): string {
-  const extra = choice.extra.map((file) => [file.to, file.from]);
-  return hashOf(JSON.stringify(extra.length === 0 ? [choice.notes, choice.files] : [choice.notes, choice.files, extra]));
-}
-
-/**
- * A number of 64 bits from a text, as two numbers of 32 bits that every
- * sign of the text is mixed into (the way of cyrb53, with all its bits kept).
- * Synchronous, and with nothing but arithmetic: the hashes of the browser
- * can only be waited for.
- */
-function hashOf(text: string): string {
-  let low = 0xdeadbeef;
-  let high = 0x41c6ce57;
-  for (let i = 0; i < text.length; i++) {
-    const sign = text.charCodeAt(i);
-    low = Math.imul(low ^ sign, 2654435761);
-    high = Math.imul(high ^ sign, 1597334677);
-  }
-  low = Math.imul(low ^ (low >>> 16), 2246822507) ^ Math.imul(high ^ (high >>> 13), 3266489909);
-  high = Math.imul(high ^ (high >>> 16), 2246822507) ^ Math.imul(low ^ (low >>> 13), 3266489909);
-  const digits = (half: number): string => (half >>> 0).toString(16).padStart(8, "0");
-  return digits(high) + digits(low);
+  return JSON.stringify([choice.notes, choice.files, choice.extra.map((file) => [file.to, file.from])]);
 }

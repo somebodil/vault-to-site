@@ -180,8 +180,6 @@ export function createSearch(host: SearchHost): Search {
           close();
           chosen.go();
         }
-      } else if (event.key === "Escape") {
-        close();
       }
     });
     input.value = query;

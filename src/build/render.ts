@@ -35,7 +35,7 @@ const SOURCE = "data-v2s-source";
 /** On a link that the build has made itself, to a file of the site, while a note is tidied */
 const MADE = "data-v2s-made";
 /** On what was emptied because it is not part of the site */
-export const LEFT_OUT = "v2s-left-out";
+const LEFT_OUT = "v2s-left-out";
 
 /**
  * Has Obsidian draw a note, and makes what it drew fit for the site.

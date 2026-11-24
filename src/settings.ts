@@ -1,4 +1,4 @@
-import { isInWork, zipPath } from "./build/output.ts";
+import { zipPath } from "./build/output.ts";
 import { renameExtra } from "./select/extra.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
 import { movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
@@ -69,9 +69,6 @@ export function placeOf(settings: Settings, normal: (path: string) => string = (
  *   archive or a site folder that was itself renamed or moved was put aside:
  *   the next build writes a new one where the setting says.
  *
- * What a build moves into the folder it writes in, as the archive of before
- * for a moment, is not a rename by the user, and changes nothing.
- *
  * A rename that changes nothing gives back the settings it was given, the
  * same object: Obsidian tells of every file in a folder that is moved, and
  * so it is seen at no cost that there is nothing to save.
@@ -80,9 +77,6 @@ export function placeOf(settings: Settings, normal: (path: string) => string = (
  * @param normal makes a path as it is written in a setting into the form the vault has
  */
 export function followRename(settings: Settings, from: string, to: string, isOntoGone = false, normal: (path: string) => string = (path) => path): Settings {
-  if ([from, to].some(isInWork)) {
-    return settings;
-  }
   const moved = (path: string): string => movedPath(path, from, to);
   const under = (path: string): string => (path === from ? path : moved(path));
   const zip = zipPath(normal(settings.zip));

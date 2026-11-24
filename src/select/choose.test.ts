@@ -278,19 +278,11 @@ describe("signatureOf", () => {
     const withExtra = { ...one, extra: [{ to: "Resume.pdf", from: "Private/Resume.pdf" }] };
     assert.notEqual(signatureOf(one), signatureOf(withExtra));
     assert.notEqual(signatureOf(withExtra), signatureOf({ ...one, extra: [{ to: "Resume.pdf", from: "Private/Other.pdf" }] }));
-    assert.equal(signatureOf(one), signatureOf({ ...one, extra: [] }));
   });
 
-  /** What a sign looks like: 16 digits to the base of 16 */
-  const SIGNATURE = /^[0-9a-f]{16}$/;
-
-  it("is short, however many notes there are", () => {
-    const many = Array.from({ length: 5000 }, (_, i) => `Notes/A folder of some length/Note number ${String(i)} with a name.md`);
+  it("tells a note more, a note less, another name, another order, and a note from a file", () => {
+    const many = Array.from({ length: 50 }, (_, i) => `Notes/Note number ${String(i)}.md`);
     const large = { ...choose(files, rules([""])), notes: many };
-    assert.match(signatureOf(large), SIGNATURE);
-    assert.equal(signatureOf(large).length, 16);
-    assert.match(signatureOf(choose([], rules([]))), SIGNATURE);
-    // One note more, one less, one with another name, and two that changed places
     const others = [[...many, "Z.md"], many.slice(1), ["Notes/Other.md", ...many.slice(1)], [many[1] ?? "", many[0] ?? "", ...many.slice(2)]];
     const signs = new Set([signatureOf(large), ...others.map((notes) => signatureOf({ ...large, notes }))]);
     assert.equal(signs.size, 5);

@@ -16,10 +16,7 @@ describe("readSettings", () => {
       format: "folder",
       zip: "   ",
       folder: " out/site ",
-      // What versions up to 0.1.3 saved, and what nobody reads any more
-      written: ["old.zip", 5],
     });
-    assert.equal("written" in read, false);
     assert.deepEqual(read.ticks, { on: ["Notes"], off: [] });
     assert.equal(read.exclude, "^Archive/");
     assert.equal(read.properties, DEFAULT_SETTINGS.properties);
@@ -59,8 +56,6 @@ describe("givenProblems", () => {
     assert.deepEqual(givenProblems({ exlude: "^Private/", ticks: { on: [""] } }), [
       '"exlude" is not a setting: a run takes ticks, exclude, include, properties, only, extra, format, zip and folder.',
     ]);
-    // What the plugin keeps for itself is not given to a run
-    assert.equal(givenProblems({ written: ["Notes"] }).length, 1);
     assert.deepEqual(givenProblems({ ticks: { on: [""], of: ["Private"] } }), ['"ticks.of" is not a setting: "ticks" has the lists "on" and "off".']);
   });
 
@@ -121,14 +116,6 @@ describe("followRename", () => {
   it("writes the next site where the setting says when the archive or the folder itself was put aside", () => {
     assert.equal(followRename(settings, "out/site.zip", "backup/site of May.zip"), settings);
     assert.equal(followRename(settings, "out/web", "out/web of May"), settings);
-  });
-
-  it("is not moved by what a build moves into the folder it writes in, and out of it", () => {
-    // The archive of before is set aside there for a moment, and a file that is put into the site may be that archive
-    const some: Settings = { ...settings, extra: "site.zip: out/site.zip", ticks: { on: ["out/site.zip"], off: [] } };
-    assert.equal(followRename(some, "out/site.zip", ".vault-to-site-cache/k3j9x2a1/old.zip"), some);
-    assert.equal(followRename(some, ".vault-to-site-cache/k3j9x2a1/old.zip", "out/site.zip"), some);
-    assert.notEqual(followRename(some, "out/site.zip", "out/site of May.zip"), some);
   });
 
   it("follows a rename to a name that has an ending after its own", () => {

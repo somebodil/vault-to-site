@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findLines, foldedNameScore, foldName, haystack, inOrder, missingParts, nameScore } from "./find.ts";
+import { findLines, foldedNameScore, foldName, haystack, missingParts } from "./find.ts";
 
 describe("the parts of the texts", () => {
   it("names the parts that are not there, also behind the last one that is", () => {
@@ -13,42 +13,24 @@ describe("the parts of the texts", () => {
     assert.deepEqual(missingParts(parts, 3), []);
     assert.deepEqual(missingParts([], 0), []);
   });
-
-  it("gives the texts in the order of the parts, whichever came first", () => {
-    const parts: ReturnType<typeof haystack>[][] = [];
-    parts[2] = [haystack("e", "five")];
-    parts[0] = [haystack("a", "one"), haystack("b", "two")];
-    assert.deepEqual(
-      inOrder(parts).map((hay) => hay.id),
-      ["a", "b", "e"],
-    );
-    parts[1] = [haystack("c", "three")];
-    assert.deepEqual(
-      inOrder(parts).map((hay) => hay.id),
-      ["a", "b", "c", "e"],
-    );
-  });
 });
 
-describe("nameScore", () => {
+describe("foldedNameScore", () => {
+  /** As the search asks: what was typed is trimmed, and both are folded */
+  const score = (typed: string, name: string): number => foldedNameScore(foldName(typed.trim()), foldName(name));
+
   it("puts the whole name first, then the start, a word, the middle, and letters in order", () => {
-    const scores = ["Setup", "Setup guide", "My setup", "Presetup", "S-e-t-u-p"].map((name) => nameScore("setup", name));
+    const scores = ["Setup", "Setup guide", "My setup", "Presetup", "S-e-t-u-p"].map((name) => score("setup", name));
     assert.deepEqual(scores, [5, 4, 3, 2, 1]);
   });
 
-  it("is the same for a name and what was typed that were put in lower case before", () => {
-    for (const name of ["Setup", "Setup guide", "My setup", "Presetup", "S-e-t-u-p", "Other"]) {
-      assert.equal(foldedNameScore(foldName("SetUp"), foldName(name)), nameScore(" SetUp ", name), name);
-    }
-  });
-
   it("is 0 for a name without the letters, and for nothing typed", () => {
-    assert.equal(nameScore("xyz", "Setup"), 0);
-    assert.equal(nameScore("  ", "Setup"), 0);
+    assert.equal(score("xyz", "Setup"), 0);
+    assert.equal(score("  ", "Setup"), 0);
   });
 
   it("finds a name in another script", () => {
-    assert.equal(nameScore("한글", "한글 노트"), 4);
+    assert.equal(score("한글", "한글 노트"), 4);
   });
 });
 

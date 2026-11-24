@@ -27,7 +27,7 @@ export const URL_IN_CSS = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/gi;
  * A sheet points to fonts and pictures by addresses that only work inside
  * Obsidian. Those are fetched and written next to the sheet.
  */
-export async function captureStyles(doc: Document, namesKeptOut: (text: string) => boolean = () => false): Promise<CapturedStyles> {
+export async function captureStyles(doc: Document, namesKeptOut: (text: string) => boolean): Promise<CapturedStyles> {
   const parts: string[] = [];
   /** The sheets that are taken from the web as they are. They have to stand before every rule. */
   const imports: string[] = [];

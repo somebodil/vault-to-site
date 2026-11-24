@@ -2,20 +2,16 @@
 
 const fold = (text: string): string => text.toLowerCase();
 
+/** A name in the form `foldedNameScore` compares: made once for a name, not at every key */
+export const foldName = fold;
+
 /**
  * How well a name fits what was typed: 0 for not at all, more for better.
  * The whole name is best, then a name that starts with it, a word that starts
  * with it, the letters next to each other anywhere, and last the letters in
- * order with others between them.
+ * order with others between them. Both are folded already (`foldName`), and
+ * what was typed is trimmed.
  */
-export function nameScore(query: string, name: string): number {
-  return foldedNameScore(fold(query.trim()), fold(name));
-}
-
-/** A name in the form `foldedNameScore` compares: made once for a name, not at every key */
-export const foldName = fold;
-
-/** `nameScore` for what was typed and a name that are both folded already (`foldName`), the typed text trimmed */
 export function foldedNameScore(q: string, n: string): number {
   if (q === "") {
     return 0;
@@ -77,18 +73,6 @@ export function missingParts(parts: readonly unknown[], count: number): number[]
   return missing;
 }
 
-/**
- * The texts of the parts that are there, in the order of their numbers. The
- * parts arrive in whatever order the network brings them. In the order of
- * their numbers, a search finds the same lines first every time.
- */
-export function inOrder(parts: readonly (readonly Haystack[] | undefined)[]): Haystack[] {
-  const texts: Haystack[] = [];
-  for (let part = 0; part < parts.length; part++) {
-    texts.push(...(parts[part] ?? []));
-  }
-  return texts;
-}
 
 export interface LineHit {
   /** The line, cut to what fits a row, with the place of the match in it */

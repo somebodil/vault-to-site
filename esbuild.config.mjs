@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { builtinModules } from "node:module";
 import esbuild from "esbuild";
 
 // `node esbuild.config.mjs production` builds once. Without the argument it rebuilds on every change.
@@ -25,8 +24,8 @@ const context = await esbuild.context({
   bundle: true,
   format: "cjs",
   target: "es2020",
-  // Obsidian provides these at run time
-  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules],
+  // Obsidian provides it at run time
+  external: ["obsidian"],
   define: {
     VIEWER_JS: JSON.stringify(viewer.outputFiles[0].text),
     VIEWER_CSS: JSON.stringify(readFileSync("src/viewer/viewer.css", "utf8")),

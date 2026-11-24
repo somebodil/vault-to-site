@@ -47,8 +47,7 @@ export function readMarker(text: string): { extra: unknown[] } | null {
  * read what is in it, so a site on the way never turns up among the files
  * of the vault. It is the plugin's alone. Every build empties it before it
  * starts, so what a build that broke off left there is gone with the next
- * one, whatever it was, and nothing has to be told from a file of the
- * person by its name. In it, a build writes to a folder of its own, named
+ * one. In it, a build writes to a folder of its own, named
  * by a few letters and digits that are drawn by chance (`wayToken`): a
  * build that another one emptied the folder under fails, and never writes
  * into the site of the other.
@@ -65,7 +64,7 @@ export function wayToken(): string {
 }
 
 /** True for the folder builds write in, and for every path inside it. A disk may take capital letters for small ones. */
-export function isInWork(path: string): boolean {
+function isInWork(path: string): boolean {
   const small = path.toLowerCase();
   return small === WORK || small.startsWith(WORK + "/");
 }
@@ -268,8 +267,6 @@ export class FolderOutput implements SiteOutput {
   /** Where the site is written until it is whole: a folder of this build in `WORK` */
   private readonly work: string;
   private readonly extra: readonly string[];
-  /** True from the moment the site of before gives way: from then on the place is no whole site until the new one stands */
-  private isMovingIn = false;
   /** The first file this build wrote: as long as it is there, the folder the site is written to is still the one of this build */
   private first: string | null = null;
 
@@ -371,7 +368,6 @@ export class FolderOutput implements SiteOutput {
     // Asked again: something may have come to the place while the site was built, and it is somebody's as well
     const before = await this.mayGoThere();
     await this.folders.make(this.root);
-    this.isMovingIn = true;
     if (await this.adapter.exists(this.root + "/index.html")) {
       await this.adapter.remove(this.root + "/index.html");
     }
@@ -396,7 +392,6 @@ export class FolderOutput implements SiteOutput {
     if (await this.adapter.exists(this.work + "/index.html")) {
       await move(this.adapter, this.work + "/index.html", this.root + "/index.html");
     }
-    this.isMovingIn = false;
     // What is left of the folder the site was written to. Should it stay, the next build takes it away.
     await leaveWork(this.adapter, this.work).catch(() => undefined);
     return { place: this.root, bytes: this.bytes };
@@ -437,17 +432,12 @@ export class FolderOutput implements SiteOutput {
   }
 
   /**
-   * Gives up. What was written is taken away, and the site
-   * of the build before stays as it was. Only when the new site was on its
-   * way in already is the place left without its page, so that it does not
-   * pass for a site: with its marker, the next build takes it.
+   * Gives up. What was written is taken away, and the site of the build
+   * before stays as it was. A site that was on its way in already is
+   * without its page, which `finish` takes away first: it does not pass for
+   * a site, and with its marker the next build takes it.
    */
   async abort(): Promise<void> {
-    // The page first: should taking the folder away fail, the place still does not pass for a site
-    const index = this.root + "/index.html";
-    if (this.isMovingIn && (await this.adapter.exists(index))) {
-      await this.adapter.remove(index);
-    }
     await leaveWork(this.adapter, this.work);
   }
 
@@ -622,10 +612,6 @@ export class ZipOutput implements SiteOutput {
       }
       try {
         await move(this.adapter, this.part, this.path);
-        const size = (await this.adapter.stat(this.path))?.size;
-        if (size !== this.onDisk) {
-          throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
-        }
       } catch (error) {
         if (isAside) {
           if (await this.adapter.exists(this.path)) {
@@ -652,12 +638,6 @@ export class ZipOutput implements SiteOutput {
     if (!this.mayReplace) {
       // A file of this name that is no archive of this plugin is somebody's, as a backup
       throw new Error(`"${this.path}" is a file that this plugin did not write. Choose another name for the archive, or remove the file.`);
-    }
-  }
-
-  private async removePart(): Promise<void> {
-    if (await this.adapter.exists(this.part)) {
-      await this.adapter.remove(this.part);
     }
   }
 
@@ -727,11 +707,7 @@ export class ZipOutput implements SiteOutput {
     const whole = piece.byteOffset === 0 && piece.byteLength === piece.buffer.byteLength ? piece : piece.slice();
     const buffer = { length: whole.length, buffer: whole.buffer as ArrayBuffer };
     if (this.onDisk === 0) {
-      const write = async (): Promise<void> => {
-        await this.removePart();
-        await this.adapter.writeBinary(this.part, buffer.buffer);
-      };
-      await checked(this.adapter, this.part, buffer.length, write);
+      await checked(this.adapter, this.part, buffer.length, () => this.adapter.writeBinary(this.part, buffer.buffer));
     } else if (buffer.length > 0) {
       await this.adapter.appendBinary(this.part, buffer.buffer);
       const size = (await this.adapter.stat(this.part))?.size;
@@ -749,9 +725,8 @@ export class ZipOutput implements SiteOutput {
  * wrote: one that starts with the marker, as every such archive does.
  *
  * This is how the archive of the build before is known, as a folder is by
- * the marker in it: by what it holds, and by no record of where builds
- * have written. The file is read whole to look at its start, since Obsidian
- * reads no part of a file.
+ * the marker in it. The file is read whole to look at its start, since
+ * Obsidian reads no part of a file.
  */
 export async function isSiteArchive(adapter: DataAdapter, path: string): Promise<boolean> {
   try {
