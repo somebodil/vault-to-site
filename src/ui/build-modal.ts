@@ -533,8 +533,6 @@ export class BuildModal extends Modal {
         },
         this.stop,
       );
-      // The site that was looked over: a build without the dialog gives this one again, and no other
-      this.settings.reviewed = reviewed;
       await this.host.save();
       const lines = [
         `${count(result.notes, "note")} and ${count(result.files, "other file")}, ${size(result.bytes)}, in ${(result.millis / 1000).toFixed(1)} seconds.`,

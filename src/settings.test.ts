@@ -42,12 +42,6 @@ describe("readSettings", () => {
     assert.equal(readSettings({ properties: "" }).properties, "");
   });
 
-  it("keeps the sign of what was looked over, and takes the long form of before as none", () => {
-    assert.equal(readSettings({ reviewed: "0123456789abcdef" }).reviewed, "0123456789abcdef");
-    assert.equal(readSettings({ reviewed: '[["Home.md","Guide/A.md"],["pic.png"]]' }).reviewed, "");
-    assert.equal(readSettings({ reviewed: 5 }).reviewed, "");
-    assert.equal(readSettings({}).reviewed, "");
-  });
 });
 
 describe("givenProblems", () => {
@@ -65,7 +59,7 @@ describe("givenProblems", () => {
       '"exlude" is not a setting: a run takes ticks, exclude, include, properties, only, extra, format, zip and folder.',
     ]);
     // What the plugin keeps for itself is not given to a run
-    assert.equal(givenProblems({ written: ["Notes"], reviewed: "" }).length, 2);
+    assert.equal(givenProblems({ written: ["Notes"] }).length, 1);
     assert.deepEqual(givenProblems({ ticks: { on: [""], of: ["Private"] } }), ['"ticks.of" is not a setting: "ticks" has the lists "on" and "off".']);
   });
 

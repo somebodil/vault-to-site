@@ -1,7 +1,7 @@
 import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
 import { followDelete, followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
-import { buildAgain, buildForProgram } from "./build/again.ts";
+import { buildForProgram } from "./build/program.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
 const ICON = "book-open-check";
@@ -12,7 +12,7 @@ export default class VaultToSitePlugin extends Plugin {
   private dialog: BuildModal | null = null;
   /** The paths that something was deleted from since the plugin was turned on, and that are still empty */
   private readonly gone = new Set<string>();
-  /** Stops a build without the dialog. Set when the plugin is turned off. */
+  /** Stops a build a program has started, which has no dialog to stop it from. Set when the plugin is turned off. */
   private readonly stop = { now: false };
 
   override async onload(): Promise<void> {
@@ -35,24 +35,6 @@ export default class VaultToSitePlugin extends Plugin {
         }
       });
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: build });
-    this.addCommand({
-      id: "build-again",
-      name: "Build again without the dialog",
-      icon: ICON,
-      callback: () =>
-        void buildAgain(
-          this.app,
-          this.config,
-          this.manifest.version,
-          async (place) => {
-            if (!this.config.written.includes(place)) {
-              this.config.written = [...this.config.written, place];
-              await this.saveData(this.config);
-            }
-          },
-          this.stop,
-        ),
-    });
     this.addRibbonIcon(ICON, "Build a site", open);
 
     // What is ticked and what was written is kept by path. A folder or file that gets another name is followed.

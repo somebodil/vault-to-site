@@ -1,4 +1,4 @@
-import { type App, normalizePath, Notice } from "obsidian";
+import { type App, normalizePath } from "obsidian";
 import { signatureOf } from "../select/choose.ts";
 import { givenProblems, placeOf, readSettings, type Settings } from "../settings.ts";
 import { isSiteArchive } from "./output.ts";
@@ -20,56 +20,18 @@ interface Runner {
 }
 
 /**
- * Builds the site without the dialog.
- *
- * The dialog is where the list of what goes in is looked over, and a build
- * without it is done only where that is not lost:
- *
- * - **A person** gets the site that was looked over last. When other notes
- *   or files would go in now, nothing is built, and the dialog is the way.
- * - **A program**, as on a server after every push, has nobody to look. It
- *   says in its settings what goes in, and should say it by a mark on each
- *   note (`only`, as `publish: true`), so that a note does not go in by
- *   being new. Told nothing, the whole vault goes in. What went in is given
- *   back, for the record of the run.
- *
- * @param claim called with the place that is written to: see `buildSite`
- * @param stop held by the plugin, which sets it when it is turned off: there is no dialog here to stop the build from
- */
-export async function buildAgain(app: App, saved: Settings, version: string, claim: (place: string) => Promise<void>, stop: { now: boolean }): Promise<void> {
-  if (await buildForProgram(app, saved, version, stop)) {
-    return;
-  }
-
-  const { choice, invalid } = planSite(app, saved);
-  if (invalid.length > 0 || saved.reviewed === "" || signatureOf(choice) !== saved.reviewed) {
-    new Notice('The site would not be the one you looked over last: other notes or files would go in. Run "Build a site" and look it over.', 10_000);
-    return;
-  }
-  const notice = new Notice("Building the site", 0);
-  try {
-    const result = await buildSite(
-      app,
-      saved,
-      version,
-      saved.reviewed,
-      claim,
-      (finished, total) => notice.setMessage(`Building the site: ${String(Math.min(finished + 1, total))} of ${String(total)}`),
-      stop,
-    );
-    notice.setMessage(`The site is built: ${String(result.notes)} notes, in "${result.place}".`);
-    window.setTimeout(() => notice.hide(), 6000);
-  } catch (error) {
-    notice.setMessage(`The site could not be built. ${error instanceof Error ? error.message : String(error)}`);
-    window.setTimeout(() => notice.hide(), 12_000);
-  }
-}
-
-/**
  * Builds the site for a program that runs Obsidian without its window, and
- * tells it how the build went. Both commands come here first: with nobody
+ * tells it how the build went. The command comes here first: with nobody
  * there, a dialog would wait for a click that never comes.
  *
+ * The dialog is where a person looks over the list of what goes in. A
+ * program, as on a server after every push, has nobody to look: it says in
+ * its settings what goes in, and should say it by a mark on each note
+ * (`only`, as `publish: true`), so that a note does not go in by being new.
+ * Told nothing, the whole vault goes in. What went in is given back, for
+ * the record of the run.
+ *
+ * @param stop held by the plugin, which sets it when it is turned off: there is no dialog here to stop the build from
  * @returns false when a person runs the command: nothing was done then
  */
 export async function buildForProgram(app: App, saved: Settings, version: string, stop: { now: boolean }): Promise<boolean> {

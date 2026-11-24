@@ -1,5 +1,4 @@
 import { OLD, PART, zipPath } from "./build/output.ts";
-import { SIGNATURE } from "./select/choose.ts";
 import { renameExtra } from "./select/extra.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
 import { isAtOrUnder, movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
@@ -42,12 +41,6 @@ export interface Settings {
    * also notes that are private now.
    */
   written: string[];
-  /**
-   * The sign of the choice that was looked over and built last (`signatureOf`),
-   * or empty when there is none. A build without the dialog is done only when
-   * the site would be that one.
-   */
-  reviewed: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -63,7 +56,6 @@ export const DEFAULT_SETTINGS: Settings = {
   // Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of the vault
   folder: ".vault-to-site",
   written: [],
-  reviewed: "",
 };
 
 /**
@@ -210,7 +202,5 @@ export function readSettings(saved: unknown): Settings {
     zip: path("zip"),
     folder: path("folder"),
     written: paths(data.written),
-    // What was kept here before was as long as the list of all notes. It is no sign as they are now: nothing counts as looked over.
-    reviewed: typeof data.reviewed === "string" && SIGNATURE.test(data.reviewed) ? data.reviewed : "",
   };
 }
