@@ -4,7 +4,7 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 
 - **It opens from a file.** Unpack the archive and double-click `index.html`: no server, no network. The same files also work on a web server or on GitHub Pages as they are.
 - **You choose what goes in.** Tick folders and notes in a tree, leave notes out or take in only some of them by their path or by a property, with regular expressions for both. Pictures and other files are not chosen: they come with the notes that use them.
-- **Nothing gets in unseen.** Before a build you look over the list of every note that goes in, and of what was kept out and why.
+- **Nothing gets in unseen.** Before a build you look over the list of every note that goes in, and of what was kept out and why. Only a build that a program starts has nobody to look: it goes by the settings it is given.
 - **It runs on a phone.** A build is one file that you can share from there.
 
 ## Requirements
