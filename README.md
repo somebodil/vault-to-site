@@ -11,6 +11,16 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 
 - Obsidian 1.12.3 or later, on a computer, a phone, or a tablet
 
+## Install
+
+The plugin is not in the list of community plugins of Obsidian yet. Until it is, put it into a vault by hand:
+
+1. From the [latest release](https://github.com/somebodil/vault-to-site/releases/latest), take `main.js`, `manifest.json` and `styles.css`.
+2. Put them into a folder `.obsidian/plugins/vault-to-site/` in your vault. On a phone, a file manager or the app you sync with can do this.
+3. In Obsidian, under **Settings → Community plugins**, turn **vault-to-site** on. Start Obsidian again if it is not listed.
+
+The files of a release are built by GitHub from the commit of its tag, and carry a signed statement of that: `gh attestation verify main.js --repo somebodil/vault-to-site` checks it.
+
 ## Getting started
 
 1. Run the command **vault-to-site: Build a site**, or tap its icon in the ribbon.

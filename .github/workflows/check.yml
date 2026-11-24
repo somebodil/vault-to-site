@@ -1,0 +1,25 @@
+name: Check
+
+# The types, the rules of the plugin guidelines, the tests that need no
+# Obsidian, and the build: on every push, so that what is in the repository
+# is known to build before a release is asked for.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
