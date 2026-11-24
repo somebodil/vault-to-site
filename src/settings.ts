@@ -1,7 +1,7 @@
-import { isOnTheWay, zipPath } from "./build/output.ts";
+import { isInWork, zipPath } from "./build/output.ts";
 import { renameExtra } from "./select/extra.ts";
 import { DEFAULT_PROPERTY_RULES } from "./select/properties.ts";
-import { isAtOrUnder, movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
+import { movedPath, NO_TICKS, renameTicks, type Ticks } from "./select/ticks.ts";
 
 /** A site is written as one zip archive, or as a folder */
 export type Format = "zip" | "folder";
@@ -35,12 +35,6 @@ export interface Settings {
   zip: string;
   /** The folder a site is written to, from the root of the vault */
   folder: string;
-  /**
-   * Every archive and folder a build has written. They are never content of
-   * a site: an archive of an earlier build holds what was in the site then,
-   * also notes that are private now.
-   */
-  written: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -55,7 +49,6 @@ export const DEFAULT_SETTINGS: Settings = {
   zip: "vault-to-site.zip",
   // Obsidian does not show a folder whose name starts with a dot, so the pictures of the site do not turn up among those of the vault
   folder: ".vault-to-site",
-  written: [],
 };
 
 /**
@@ -72,14 +65,12 @@ export function placeOf(settings: Settings, normal: (path: string) => string = (
  * The settings after a folder or file of the vault got another name.
  *
  * - A tick stays with what it was set on.
- * - What a build wrote stays the plugin's under its new name.
  * - The place of the next build moves only with a folder above it. An
  *   archive or a site folder that was itself renamed or moved was put aside:
- *   the next build writes a new one where the setting says, and does not
- *   write over the one that was put aside.
+ *   the next build writes a new one where the setting says.
  *
- * The names a build gives its own archive on the way are not a rename by the
- * user, and change nothing.
+ * What a build moves into the folder it writes in, as the archive of before
+ * for a moment, is not a rename by the user, and changes nothing.
  *
  * A rename that changes nothing gives back the settings it was given, the
  * same object: Obsidian tells of every file in a folder that is moved, and
@@ -89,7 +80,7 @@ export function placeOf(settings: Settings, normal: (path: string) => string = (
  * @param normal makes a path as it is written in a setting into the form the vault has
  */
 export function followRename(settings: Settings, from: string, to: string, isOntoGone = false, normal: (path: string) => string = (path) => path): Settings {
-  if ([from, to].some(isOnTheWay)) {
+  if ([from, to].some(isInWork)) {
     return settings;
   }
   const moved = (path: string): string => movedPath(path, from, to);
@@ -100,7 +91,6 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
     ...settings,
     ticks: renameTicks(settings.ticks, from, to, isOntoGone),
     extra: renameExtra(settings.extra, moved, normal),
-    written: [...new Set(settings.written.map(moved))],
     zip: under(zip) === zip ? settings.zip : under(zip),
     folder: under(folder) === folder ? settings.folder : under(folder),
   };
@@ -108,7 +98,6 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
     samePaths(next.ticks.on, settings.ticks.on) &&
     samePaths(next.ticks.off, settings.ticks.off) &&
     next.extra === settings.extra &&
-    samePaths(next.written, settings.written) &&
     next.zip === settings.zip &&
     next.folder === settings.folder;
   return isSame ? settings : next;
@@ -116,19 +105,6 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
 
 function samePaths(one: readonly string[], other: readonly string[]): boolean {
   return one.length === other.length && one.every((path, at) => path === other[at]);
-}
-
-/**
- * The settings after a folder or file of the vault was deleted: what a build
- * wrote there is the plugin's no longer. Without this, a folder of notes
- * that is made later under the name of a site that is gone would be taken
- * for that site, and none of its notes would be offered for a site.
- *
- * Gives back the same object when nothing a build wrote was there.
- */
-export function followDelete(settings: Settings, deleted: string): Settings {
-  const written = deleted === "" ? settings.written : settings.written.filter((path) => !isAtOrUnder(path, deleted));
-  return written.length === settings.written.length ? settings : { ...settings, written };
 }
 
 const GIVEN_TEXTS: readonly string[] = ["exclude", "include", "properties", "only", "extra"];
@@ -232,6 +208,5 @@ export function readSettings(saved: unknown): Settings {
     format: data.format === "folder" ? "folder" : "zip",
     zip: path("zip"),
     folder: path("folder"),
-    written: paths(data.written),
   };
 }

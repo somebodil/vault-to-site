@@ -530,13 +530,6 @@ export class BuildModal extends Modal {
         this.settings,
         this.host.version,
         reviewed,
-        async (place) => {
-          // What a build writes is never content of a later site, also after the name in the setting has changed
-          if (!this.settings.written.includes(place)) {
-            this.settings.written = [...this.settings.written, place];
-            await this.host.save();
-          }
-        },
         (finished, total, what) => {
           bar.max = total;
           bar.value = finished;

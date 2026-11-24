@@ -116,15 +116,11 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
     runner.log(`"${file.from}" goes in as "${file.to}".`);
   }
   let said = 0;
-  // Nothing is saved in a run, so there is no record that the archive of the run before is the plugin's: the
-  // build knows it by what it holds. A file of someone else at its place is still refused.
   const result = await buildSite(
     app,
     settings,
     version,
     signatureOf(choice),
-    // Nothing is saved in a run: the settings of the run are not those of the vault
-    () => Promise.resolve(),
     (finished, total) => {
       const tenth = Math.floor((finished * 10) / total);
       if (tenth > said && tenth < 10) {

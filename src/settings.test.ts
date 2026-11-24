@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_SETTINGS, followDelete, followRename, givenProblems, givenTicks, placeOf, readSettings, type Settings } from "./settings.ts";
+import { DEFAULT_SETTINGS, followRename, givenProblems, givenTicks, placeOf, readSettings, type Settings } from "./settings.ts";
 
 describe("readSettings", () => {
   it("gives the defaults for nothing saved", () => {
@@ -16,9 +16,10 @@ describe("readSettings", () => {
       format: "folder",
       zip: "   ",
       folder: " out/site ",
+      // What versions up to 0.1.3 saved, and what nobody reads any more
       written: ["old.zip", 5],
     });
-    assert.deepEqual(read.written, ["old.zip"]);
+    assert.equal("written" in read, false);
     assert.deepEqual(read.ticks, { on: ["Notes"], off: [] });
     assert.equal(read.exclude, "^Archive/");
     assert.equal(read.properties, DEFAULT_SETTINGS.properties);
@@ -101,12 +102,10 @@ describe("followRename", () => {
     ticks: { on: ["Guide"], off: ["Guide/Draft.md"] },
     zip: "out/site",
     folder: "out/web",
-    written: ["out/site.zip", "out/web"],
   };
 
-  it("moves the ticks, the record of what was written and the place of the next build with a folder above them", () => {
+  it("moves the ticks and the place of the next build with a folder above them", () => {
     const next = followRename(settings, "out", "public");
-    assert.deepEqual(next.written, ["public/site.zip", "public/web"]);
     assert.equal(next.zip, "public/site.zip");
     assert.equal(next.folder, "public/web");
     assert.deepEqual(followRename(settings, "Guide", "Manual").ticks, { on: ["Manual"], off: ["Manual/Draft.md"] });
@@ -119,27 +118,23 @@ describe("followRename", () => {
     assert.equal(readSettings({ extra: 3 }).extra, "");
   });
 
-  it("keeps an archive that was put aside the plugin's, and writes the next one where the setting says", () => {
-    const next = followRename(settings, "out/site.zip", "backup/site of May.zip");
-    assert.deepEqual(next.written, ["backup/site of May.zip", "out/web"]);
-    assert.equal(next.zip, "out/site");
-    assert.equal(followRename(settings, "out/web", "out/web of May").folder, "out/web");
+  it("writes the next site where the setting says when the archive or the folder itself was put aside", () => {
+    assert.equal(followRename(settings, "out/site.zip", "backup/site of May.zip"), settings);
+    assert.equal(followRename(settings, "out/web", "out/web of May"), settings);
   });
 
-  it("is not moved by the names a build gives its archive on the way", () => {
-    assert.equal(followRename(settings, "out/site.zip", "out/site.zip.v2s-old"), settings);
-    assert.equal(followRename(settings, "out/site.zip.v2s-part", "out/site.zip"), settings);
-    assert.equal(followRename(settings, "out/site.zip.v2s-old", "out/site.zip"), settings);
-    // With the letters a build draws by chance, and for what lies in a folder on the way
-    assert.equal(followRename(settings, "out/site.zip.v2s-part-k3j9x2a1", "out/site.zip"), settings);
-    assert.equal(followRename(settings, "site.v2s-part-k3j9x2a1/data", "site/data"), settings);
+  it("is not moved by what a build moves into the folder it writes in, and out of it", () => {
+    // The archive of before is set aside there for a moment, and a file that is put into the site may be that archive
+    const some: Settings = { ...settings, extra: "site.zip: out/site.zip", ticks: { on: ["out/site.zip"], off: [] } };
+    assert.equal(followRename(some, "out/site.zip", ".vault-to-site-cache/k3j9x2a1/old.zip"), some);
+    assert.equal(followRename(some, ".vault-to-site-cache/k3j9x2a1/old.zip", "out/site.zip"), some);
+    assert.notEqual(followRename(some, "out/site.zip", "out/site of May.zip"), some);
   });
 
-  it("follows a rename to a name that only looks like one of those", () => {
+  it("follows a rename to a name that has an ending after its own", () => {
     const some: Settings = { ...settings, ticks: { on: [""], off: ["Drafts"] } };
     assert.deepEqual(followRename(some, "Drafts", "Drafts.old").ticks, { on: [""], off: ["Drafts.old"] });
     assert.deepEqual(followRename({ ...some, ticks: { on: [""], off: ["Notes.old"] } }, "Notes.old", "Notes").ticks, { on: [""], off: ["Notes"] });
-    assert.deepEqual(followRename(settings, "out/site.zip", "out/site.zip.old").written, ["out/site.zip.old", "out/web"]);
   });
 
   it("keeps what was decided inside a folder when Obsidian tells of the folder and of each thing in it", () => {
@@ -169,33 +164,9 @@ describe("followRename", () => {
     assert.equal(followRename(some, "Notes", "Wiki", true), some);
     assert.notEqual(followRename(some, "Guide/Draft.md", "Guide/Sketch.md"), some);
     assert.notEqual(followRename(some, "Guide/Resume.pdf", "Guide/CV.pdf"), some);
-    assert.notEqual(followRename(some, "out/web", "out/web of May"), some);
     assert.notEqual(followRename(some, "out", "public"), some);
     // A tick that is dropped because something else came to its path is a change as well
     assert.notEqual(followRename(some, "Notes/a.md", "Guide/Draft.md", true), some);
-  });
-});
-
-describe("followDelete", () => {
-  const settings: Settings = { ...DEFAULT_SETTINGS, ticks: { on: ["Blog"], off: [] }, zip: "out/site", folder: "Blog", written: ["out/site.zip", "Blog", "Blogs"] };
-
-  it("forgets what a build wrote at a path that is deleted, or inside it", () => {
-    assert.deepEqual(followDelete(settings, "Blog").written, ["out/site.zip", "Blogs"]);
-    assert.deepEqual(followDelete(settings, "out/site.zip").written, ["Blog", "Blogs"]);
-    assert.deepEqual(followDelete(settings, "out").written, ["Blog", "Blogs"]);
-  });
-
-  it("changes nothing else: the ticks and the place of the next build stay", () => {
-    const next = followDelete(settings, "Blog");
-    assert.deepEqual({ ...next, written: settings.written }, settings);
-  });
-
-  it("gives back the same object for a delete elsewhere, also inside a site", () => {
-    assert.equal(followDelete(settings, "Notes/a.md"), settings);
-    assert.equal(followDelete(settings, "Blog/index.html"), settings);
-    assert.equal(followDelete(settings, "Blo"), settings);
-    assert.equal(followDelete(settings, "out/site.zip.v2s-old"), settings);
-    assert.equal(followDelete(settings, ""), settings);
   });
 });
 

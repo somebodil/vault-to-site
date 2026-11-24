@@ -1,6 +1,6 @@
 import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
-import { followDelete, followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
+import { followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
 import { buildForProgram } from "./build/program.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
@@ -37,7 +37,7 @@ export default class VaultToSitePlugin extends Plugin {
     this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: build });
     this.addRibbonIcon(ICON, "Build a site", open);
 
-    // What is ticked and what was written is kept by path. A folder or file that gets another name is followed.
+    // What is ticked is kept by path. A folder or file that gets another name is followed.
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         const next = followRename(this.config, oldPath, file.path, this.gone.has(file.path), normalizePath);
@@ -62,12 +62,6 @@ export default class VaultToSitePlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
         this.gone.add(file.path);
-        // What a build wrote and is deleted is the plugin's no longer: the path may be a folder of notes later
-        const next = followDelete(this.config, file.path);
-        if (next !== this.config) {
-          Object.assign(this.config, next);
-          void this.saveData(this.config);
-        }
       }),
     );
     this.registerEvent(this.app.vault.on("create", (file) => this.gone.delete(file.path)));

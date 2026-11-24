@@ -1,6 +1,6 @@
 {
   "name": "vault-to-site",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Obsidian plugin that builds the notes you choose into a read-only website that opens from a file",
   "private": true,
   "type": "module",

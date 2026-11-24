@@ -5,18 +5,17 @@ import { planExtra, type KindOfPath } from "../select/extra.ts";
 import { parsePropertyRules, propertyProblems } from "../select/properties.ts";
 import { isAtOrUnder } from "../select/ticks.ts";
 import { placeOf, type Settings } from "../settings.ts";
-import { isOnTheWay, SITE_NAMES } from "./output.ts";
+import { SITE_NAMES } from "./output.ts";
 
 /** Files that Obsidian draws from what is in them. See `VaultFile.undrawn`. */
 const UNDRAWN = new Set(["canvas", "base"]);
 
-/** The files of the vault as the choice sees them. What a build writes, or has written, is not one of them. */
+/** The files of the vault as the choice sees them. What lies where the build writes is not one of them. */
 export function readVault(app: App, settings: Settings): VaultFile[] {
-  // Where the next build writes, and where builds have written. Not the place of the other format: a name
-  // typed there and never built to may be a folder of notes.
-  const own = [placeOf(settings, normalizePath), ...settings.written.map((path) => normalizePath(path))];
-  // An archive has another name for the moment it gives way, and one that a build set aside may still lie there
-  const isOwn = (path: string): boolean => isOnTheWay(path) || own.some((mine) => isAtOrUnder(path, mine));
+  // Where the build writes: the site of the build before, which gives way. Not the place of the other
+  // format: a name typed there and never built to may be a folder of notes.
+  const own = placeOf(settings, normalizePath);
+  const isOwn = (path: string): boolean => isAtOrUnder(path, own);
   const resolved = app.metadataCache.resolvedLinks;
   const files: VaultFile[] = [];
   for (const file of app.vault.getFiles()) {

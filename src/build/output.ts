@@ -59,33 +59,13 @@ export function readMarker(text: string): { extra: unknown[] } | null {
  */
 export const WORK = ".vault-to-site-cache";
 
-/**
- * The name an archive has for the moment in which the new one takes its
- * place: its own, this, a hyphen and what `wayToken` drew. It is set aside
- * beside its place and not into `WORK`, so that Obsidian sees a rename, and
- * not an archive that the person took away.
- */
-export const OLD = ".v2s-old";
-
-/**
- * The ending of an archive that is set aside, and of what builds up to
- * 0.1.2 had beside the place while they wrote. Nobody gives a file of their
- * own such a name, so a rename to or from one is a step of a build.
- */
-const ON_THE_WAY = /\.v2s-(?:part|old)(?:-[a-z0-9]+)?(?:\/|$)/;
-
-/** True for what a build has beside a place on the way, and for every path inside it */
-export function isOnTheWay(path: string): boolean {
-  return ON_THE_WAY.test(path);
-}
-
 /** Eight letters and digits, drawn by chance: what tells the things one build has on the way from those of every other */
 export function wayToken(): string {
   return Math.random().toString(36).slice(2, 10).padEnd(8, "0");
 }
 
 /** True for the folder builds write in, and for every path inside it. A disk may take capital letters for small ones. */
-function isInWork(path: string): boolean {
+export function isInWork(path: string): boolean {
   const small = path.toLowerCase();
   return small === WORK || small.startsWith(WORK + "/");
 }
@@ -170,12 +150,8 @@ export interface SiteOutput {
   binary(path: string, content: ArrayBuffer): Promise<void>;
   /** Puts a file of the vault into the site */
   copy(from: string, path: string): Promise<void>;
-  /**
-   * Ends the writing. Says where the site is, from the root of the vault, and how large.
-   *
-   * @param claim called right before the site takes its place, when nothing stands against it
-   */
-  finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }>;
+  /** Ends the writing: the site takes its place. Says where the site is, from the root of the vault, and how large. */
+  finish(): Promise<{ place: string; bytes: number }>;
   /** Gives up: what was written so far is taken away, and the site of the build before stays as it was */
   abort(): Promise<void>;
   /** How many files of the vault may be copied at a time */
@@ -264,25 +240,6 @@ function folderOf(path: string): string {
 
 function nameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
-}
-
-/**
- * The archives that builds set aside beside a place and did not take away,
- * as they broke off between two steps: the files that have the name of the
- * place and after it the ending of one set aside. Their names differ from
- * build to build, so they are found by looking.
- */
-async function setAside(adapter: DataAdapter, place: string): Promise<string[]> {
-  const above = folderOf(place);
-  let listed: { files: string[]; folders: string[] };
-  try {
-    listed = await adapter.list(above === "" ? "/" : above);
-  } catch {
-    // No folder above the place yet: nothing was left there
-    return [];
-  }
-  const start = place + OLD;
-  return listed.files.map((path) => path.replace(/^\/+/, "")).filter((path) => path.startsWith(start) && /^(?:-[a-z0-9]+)?$/.test(path.slice(start.length)));
 }
 
 /**
@@ -405,7 +362,7 @@ export class FolderOutput implements SiteOutput {
    * is no site, and with the marker in it, which is written over and never
    * taken away, the next build takes the folder for the plugin's.
    */
-  async finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }> {
+  async finish(): Promise<{ place: string; bytes: number }> {
     // Another Obsidian that builds in the same vault empties the folder under this build. What was written
     // after that may well be there, and would be half a site.
     if (this.first !== null && !(await this.adapter.exists(this.first))) {
@@ -413,7 +370,6 @@ export class FolderOutput implements SiteOutput {
     }
     // Asked again: something may have come to the place while the site was built, and it is somebody's as well
     const before = await this.mayGoThere();
-    await claim?.();
     await this.folders.make(this.root);
     this.isMovingIn = true;
     if (await this.adapter.exists(this.root + "/index.html")) {
@@ -576,7 +532,7 @@ export class ZipOutput implements SiteOutput {
   private readonly work: string;
   /** Where the archive is written until it is whole: in that folder */
   private readonly part: string;
-  /** Where the archive of the build before is set aside while the new one gets its name */
+  /** Where the archive of the build before is set aside while the new one takes its place: in that folder as well */
   private readonly before: string;
   private readonly zip: ZipWriter;
   private pieces: Uint8Array[] = [];
@@ -590,16 +546,16 @@ export class ZipOutput implements SiteOutput {
   private broken: Error | null = null;
   /** An archive is written in pieces from this size on */
   private readonly pieceSize: number;
-  /** True when a build has written to this path before: what is there may give way */
+  /** True when the file at the path is an archive of this plugin: it may give way */
   private readonly mayReplace: boolean;
 
-  /** @param mayReplace true when the file at the path, if there is one, was written by a build of this plugin */
+  /** @param mayReplace true when the file at the path, if there is one, was written by a build of this plugin: see `isSiteArchive` */
   constructor(adapter: DataAdapter, path: string, mayReplace: boolean, pieceSize = 32 * 1024 * 1024, token = wayToken()) {
     this.adapter = adapter;
     this.path = zipPath(path);
     this.work = WORK + "/" + token;
-    this.part = this.work + "/" + nameOf(this.path);
-    this.before = this.path + OLD + "-" + token;
+    this.part = this.work + "/new.zip";
+    this.before = this.work + "/old.zip";
     this.mayReplace = mayReplace;
     this.pieceSize = pieceSize;
     this.zip = new ZipWriter((piece) => this.take(piece));
@@ -641,24 +597,28 @@ export class ZipOutput implements SiteOutput {
     return this.inTurn(async () => this.zip.add(path, new Uint8Array(await this.adapter.readBinary(from))));
   }
 
-  async finish(claim?: () => Promise<void>): Promise<{ place: string; bytes: number }> {
+  async finish(): Promise<{ place: string; bytes: number }> {
     await this.inTurn(async () => {
       await this.zip.finish();
       await this.flush();
-      // Only now does the archive of the build before give way. It is set aside, not removed, until the
-      // new one has its name: should that fail, the old one is put back.
+      // Only now does the archive of the build before give way
       const before = this.before;
       const hadOne = await this.adapter.exists(this.path);
       if (hadOne) {
         // Asked again: a file that came to the place while the site was built is somebody's as well
         this.refuseForeign();
       }
-      await claim?.();
+      // It is set aside, not removed, until the new one stands: should that fail, the old one is put back.
+      // One that cannot be set aside, as from another disk, is removed: what is in the way has to go.
+      let isAside = false;
       if (hadOne) {
-        if (await this.adapter.exists(before)) {
-          await this.adapter.remove(before);
+        isAside = await this.adapter.rename(this.path, before).then(
+          () => true,
+          () => false,
+        );
+        if (!isAside) {
+          await this.adapter.remove(this.path);
         }
-        await this.adapter.rename(this.path, before);
       }
       try {
         await move(this.adapter, this.part, this.path);
@@ -667,7 +627,7 @@ export class ZipOutput implements SiteOutput {
           throw new Error(`"${this.path}" could not be written: it has ${String(size ?? "no")} bytes of ${String(this.onDisk)}. Build again.`);
         }
       } catch (error) {
-        if (hadOne) {
+        if (isAside) {
           if (await this.adapter.exists(this.path)) {
             await this.adapter.remove(this.path);
           }
@@ -675,14 +635,7 @@ export class ZipOutput implements SiteOutput {
         }
         throw error;
       }
-      if (hadOne) {
-        await this.adapter.remove(before);
-      }
-      // An archive that a build set aside and could not put back, when it broke off between the two steps:
-      // the new one stands now, and the old one is not needed any more
-      for (const rest of await setAside(this.adapter, this.path)) {
-        await this.adapter.remove(rest).catch(() => undefined);
-      }
+      // With the folder goes the archive that was set aside
       await leaveWork(this.adapter, this.work).catch(() => undefined);
     });
     return { place: this.path, bytes: this.onDisk };
@@ -697,7 +650,7 @@ export class ZipOutput implements SiteOutput {
   /** Stops the build when the file at the place of the archive is not one that may give way */
   private refuseForeign(): void {
     if (!this.mayReplace) {
-      // An archive of this name that a build did not write is somebody's file, as a backup
+      // A file of this name that is no archive of this plugin is somebody's, as a backup
       throw new Error(`"${this.path}" is a file that this plugin did not write. Choose another name for the archive, or remove the file.`);
     }
   }
@@ -795,10 +748,10 @@ export class ZipOutput implements SiteOutput {
  * True when the file at a path is an archive that a build of this plugin
  * wrote: one that starts with the marker, as every such archive does.
  *
- * For where there is no record of what was written: in a run by a program,
- * which saves nothing, and after the settings of the plugin were lost. There
- * the archive of the build before is known by what it holds. The file is
- * read whole to look at its start, since Obsidian reads no part of a file.
+ * This is how the archive of the build before is known, as a folder is by
+ * the marker in it: by what it holds, and by no record of where builds
+ * have written. The file is read whole to look at its start, since Obsidian
+ * reads no part of a file.
  */
 export async function isSiteArchive(adapter: DataAdapter, path: string): Promise<boolean> {
   try {

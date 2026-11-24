@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateRawSync } from "node:zlib";
 import type { DataAdapter } from "obsidian";
-import { FolderOutput, isOnTheWay, isSiteArchive, MARKER, markerText, readMarker, wayToken, WORK, ZipOutput, zipPath } from "./output.ts";
+import { FolderOutput, isInWork, isSiteArchive, MARKER, markerText, readMarker, wayToken, WORK, ZipOutput, zipPath } from "./output.ts";
 
 /** What the outputs use of the adapter of Obsidian, kept in memory */
 class MemoryAdapter {
@@ -205,18 +205,17 @@ const TOKEN = "t0k3n";
 /** Where a build of a test writes until the site is whole */
 const MINE = WORK + "/" + TOKEN;
 
-describe("the names of a build on the way", () => {
-  it("are known with the letters a build draws by chance, without them, and for what lies inside", () => {
-    // An archive that is set aside, and what builds up to 0.1.2 had beside the place while they wrote
-    for (const path of ["site.zip.v2s-part-k3j9x2a1", "out/site.zip.v2s-old-0a1b2c3d", "_site.v2s-part-t0k3n", "_site.v2s-part-t0k3n/data/n/a.js", "site.zip.v2s-part-t0k3n", "site.zip.v2s-old"]) {
-      assert.equal(isOnTheWay(path), true, path);
+describe("the folder that builds write in", () => {
+  it("is known with what lies inside, also where a disk takes capital letters for small ones", () => {
+    for (const path of [WORK, WORK + "/k3j9x2a1", WORK + "/k3j9x2a1/data/n/a.js", ".Vault-To-Site-Cache/k3j9x2a1/new.zip"]) {
+      assert.equal(isInWork(path), true, path);
     }
-    for (const path of ["site.zip", "_site/data/n/a.js", "Notes/v2s-part.md", "a.v2s-partner", "a.v2s-part-Not Lower"]) {
-      assert.equal(isOnTheWay(path), false, path);
+    for (const path of ["site.zip", ".vault-to-site/data/n/a.js", WORK + "-of-mine/a.md", "Notes/" + WORK + "/a.md"]) {
+      assert.equal(isInWork(path), false, path);
     }
   });
 
-  it("differ from build to build", () => {
+  it("has a folder for each build, with a name that differs from build to build", () => {
     const drawn = new Set(Array.from({ length: 50 }, () => wayToken()));
     assert.equal(drawn.size, 50);
     assert.ok([...drawn].every((token) => /^[a-z0-9]{8}$/.test(token)));
@@ -265,24 +264,6 @@ describe("FolderOutput", () => {
     await output.abort();
     assert.deepEqual([...adapter.files], [...before], "and after the build was given up");
     assert.deepEqual([...adapter.folders].sort(), ["site", "site/data", "site/data/n"]);
-  });
-
-  it("calls for the claim right before the site of before gives way", async () => {
-    const adapter = new MemoryAdapter();
-    adapter.folders.add("site");
-    adapter.files.set("site/" + MARKER, marker());
-    adapter.files.set("site/index.html", new TextEncoder().encode("the page of before"));
-    const output = new FolderOutput(adapter.asAdapter, "site", [], TOKEN);
-    await output.prepare();
-    await output.text(MARKER, markerText("0.2.0", []));
-    await output.text("index.html", "new");
-    let seen = "";
-    await output.finish(() => {
-      seen = adapter.text("site/index.html");
-      return Promise.resolve();
-    });
-    assert.equal(seen, "the page of before");
-    assert.equal(adapter.text("site/index.html"), "new");
   });
 
   it("takes away the site of an earlier build, and nothing else in its folder", async () => {
@@ -685,7 +666,7 @@ describe("ZipOutput", () => {
 
   it("writes the archive again when it was left empty", async () => {
     const adapter = new MemoryAdapter();
-    adapter.emptyOnce.add(MINE + "/site.zip");
+    adapter.emptyOnce.add(MINE + "/new.zip");
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "content");
@@ -710,7 +691,7 @@ describe("ZipOutput", () => {
     await output.text("data/n/a.js", "x".repeat(50));
     await output.binary("assets/noise.png", new Uint8Array(5000).map((_, i) => (i * 7919) & 0xff).buffer);
     assert.deepEqual(adapter.files.get("site.zip"), before, "still there while the new one is written");
-    assert.ok(adapter.files.has(MINE + "/site.zip"));
+    assert.ok(adapter.files.has(MINE + "/new.zip"));
     await output.abort();
     assert.deepEqual(adapter.files.get("site.zip"), before, "and after the build was given up");
     assert.deepEqual([...adapter.files.keys()], ["site.zip"]);
@@ -745,34 +726,9 @@ describe("ZipOutput", () => {
     await output.text("index.html", "new");
     const theirs = new TextEncoder().encode("put there in the meantime");
     adapter.files.set("site.zip", theirs);
-    let claims = 0;
-    const claim = (): Promise<void> => {
-      claims++;
-      return Promise.resolve();
-    };
-    await assert.rejects(output.finish(claim), /did not write/);
+    await assert.rejects(output.finish(), /did not write/);
     await output.abort();
-    assert.equal(claims, 0, "the place is not claimed");
     assert.deepEqual([...adapter.files], [["site.zip", theirs]]);
-  });
-
-  it("claims its place right before the archive stands there", async () => {
-    const adapter = new MemoryAdapter();
-    const seen: string[][] = [];
-    const claim = (): Promise<void> => {
-      seen.push([...adapter.files.keys()]);
-      return Promise.resolve();
-    };
-    // A new archive, and one over the archive of a build before
-    for (const mayReplace of [false, true]) {
-      const output = new ZipOutput(adapter.asAdapter, "site.zip", mayReplace, undefined, TOKEN);
-      await output.prepare();
-      await output.text("index.html", mayReplace ? "second" : "first");
-      await output.finish(claim);
-    }
-    assert.deepEqual(seen, [[MINE + "/site.zip"], ["site.zip", MINE + "/site.zip"]]);
-    assert.deepEqual([...adapter.folders], []);
-    assert.deepEqual([...unzip(adapter.files.get("site.zip") ?? new Uint8Array(0))], [["index.html", "second"]]);
   });
 
   it("puts the archive of before back when the new one cannot get its name", async () => {
@@ -783,7 +739,7 @@ describe("ZipOutput", () => {
     await output.prepare();
     await output.text("index.html", "new");
     // It can be neither moved nor copied there
-    adapter.failRename = (from) => from === MINE + "/site.zip";
+    adapter.failRename = (from) => from === MINE + "/new.zip";
     adapter.failCopy = true;
     await assert.rejects(output.finish(), /busy/);
     await output.abort();
@@ -798,7 +754,8 @@ describe("ZipOutput", () => {
     const output = new ZipOutput(adapter.asAdapter, "out/site.zip", true, undefined, TOKEN);
     await output.prepare();
     await output.text("index.html", "new");
-    adapter.failRename = (from) => from === MINE + "/site.zip";
+    // Neither the archive of before nor the new one can be moved
+    adapter.failRename = () => true;
     const written = await output.finish();
     assert.deepEqual([...adapter.files.keys()], ["out/site.zip"]);
     assert.equal(written.bytes, adapter.files.get("out/site.zip")?.length);
@@ -806,18 +763,22 @@ describe("ZipOutput", () => {
     assert.deepEqual([...adapter.folders], ["out"]);
   });
 
-  it("takes away an archive that a build set aside and broke off, whatever it drew by chance, and no file of the person", async () => {
+  it("sets the archive of before aside where builds write, and it is gone with that folder", async () => {
     const adapter = new MemoryAdapter();
-    for (const rest of ["site.zip.v2s-old-0ld0ne00", "site.zip.v2s-old", "site.zip.v2s-older", "other.zip.v2s-old-0ld0ne00", "notes.md"]) {
-      adapter.files.set(rest, new Uint8Array(100));
-    }
+    adapter.files.set("site.zip", new TextEncoder().encode("the archive of before"));
     const output = new ZipOutput(adapter.asAdapter, "site.zip", true, undefined, TOKEN);
     await output.prepare();
-    // An archive that was set aside may be the only one there is: it stays until the new one stands
-    assert.equal(adapter.files.size, 5);
     await output.text("index.html", "new");
+    const moves: string[] = [];
+    const rename = adapter.rename.bind(adapter);
+    adapter.rename = (from: string, to: string): Promise<void> => {
+      moves.push(from + " -> " + to);
+      return rename(from, to);
+    };
     await output.finish();
-    assert.deepEqual([...adapter.files.keys()].sort(), ["notes.md", "other.zip.v2s-old-0ld0ne00", "site.zip", "site.zip.v2s-older"]);
+    assert.deepEqual(moves, ["site.zip -> " + MINE + "/old.zip", MINE + "/new.zip -> site.zip"]);
+    assert.deepEqual([...adapter.files.keys()], ["site.zip"], "nothing is left beside the archive");
+    assert.deepEqual([...adapter.folders], []);
   });
 });
 

@@ -84,7 +84,6 @@ const marks = window as unknown as Record<string, unknown>;
  *
  * @param settings read once, when the build starts: what is changed in them while it runs changes nothing of it
  * @param reviewed the sign (`signatureOf`) of the choice the build is to hold: the one that was looked over in the dialog, or the one a program worked out. The build is not done when the vault has changed since.
- * @param claim called with the place the site is written to, before anything of the build is there: from then on the place is the plugin's
  * @param width how wide the part of Obsidian that shows the notes is taken to be, in pixels. Left out, it is as wide as it is now.
  * @param needsEveryNote true for a build that nobody looks at: when a note could not be drawn, it gives up before the site takes its place
  */
@@ -93,7 +92,6 @@ export async function buildSite(
   settings: Settings,
   version: string,
   reviewed: string,
-  claim: (place: string) => Promise<void>,
   progress: Progress,
   stop: { now: boolean },
   width?: number,
@@ -106,8 +104,8 @@ export async function buildSite(
   try {
     // A copy: the settings of the plugin are one object that is changed in place, when a file gets another
     // name or the saved settings are read anew. A build goes by what it started with.
-    const own: Settings = { ...settings, ticks: { on: [...settings.ticks.on], off: [...settings.ticks.off] }, written: [...settings.written] };
-    return await build(app, own, version, reviewed, claim, progress, stop, width, needsEveryNote);
+    const own: Settings = { ...settings, ticks: { on: [...settings.ticks.on], off: [...settings.ticks.off] } };
+    return await build(app, own, version, reviewed, progress, stop, width, needsEveryNote);
   } finally {
     marks[BUILDING] = false;
   }
@@ -118,7 +116,6 @@ async function build(
   settings: Settings,
   version: string,
   reviewed: string,
-  claim: (place: string) => Promise<void>,
   progress: Progress,
   stop: { now: boolean },
   width: number | undefined,
@@ -146,10 +143,9 @@ async function build(
 
   const place = placeOf(settings, normalizePath);
   const extraPaths = choice.extra.map((file) => file.to);
-  // An archive at the place may give way when a build of this plugin wrote it. That is known by the record of
-  // what was written, and where there is none, as in a run by a program, which saves nothing, or after the
-  // settings were lost, by what the archive holds. Any other file there is somebody's, and is refused.
-  const isOwnArchive = settings.format === "zip" && (settings.written.includes(place) || (await isSiteArchive(app.vault.adapter, place)));
+  // An archive at the place may give way when a build of this plugin wrote it, which is known by what the
+  // archive holds. Any other file there is somebody's, and is refused.
+  const isOwnArchive = settings.format === "zip" && (await isSiteArchive(app.vault.adapter, place));
   const output: SiteOutput = settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, isOwnArchive) : new FolderOutput(app.vault.adapter, place, extraPaths);
   await output.prepare();
 
@@ -359,9 +355,9 @@ async function build(
     await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();
     progress(total, total, "Writing");
-    // The place is claimed only now, by the output, when the site is about to stand there: until then there is
+    // Only now does the site take its place: until then there is
     // nothing of this build at its place, and what someone puts there in the meantime is theirs
-    const written = await output.finish(() => claim(place));
+    const written = await output.finish();
     progress(total, total, "");
 
     return {
