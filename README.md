@@ -55,6 +55,13 @@ The dialog is where you look over what goes in. A build without it is there for 
   }
   ```
 
+  The command is given the file as `settings`. With the file as `site.json` in the vault:
+
+  ```sh
+  obsidian-cmd-runner --vault notes --plugin somebodil/vault-to-site \
+    --command vault-to-site:build-again --arg "settings=$(cat notes/site.json)"
+  ```
+
   The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `include`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A name that is not one of these, or a value of the wrong kind, as a list where text is read, makes the run fail and is named: no setting is passed over. Because nothing is saved, a run knows the archive of the run before by what it holds and writes over it; any other file at its place is refused. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
 
 ## What the site has
