@@ -69,6 +69,19 @@ export async function buildAgain(app: App, saved: Settings, version: string, cla
   }
 }
 
+/**
+ * How wide a note is taken to be when nobody has Obsidian open at a size of
+ * their own. A program runs it in a window of whatever size, at times with
+ * no screen at all, and what is drawn to fit the width of a note, as a
+ * diagram is, must not come out by that chance. To begin with, the width of
+ * a window on a computer; `width` among what the run is given says another.
+ */
+const WIDTH_UNATTENDED = 1100;
+
+function widthOf(given: unknown): number {
+  return typeof given === "number" && Number.isFinite(given) && given >= 320 && given <= 10_000 ? Math.round(given) : WIDTH_UNATTENDED;
+}
+
 async function unattended(app: App, saved: Settings, version: string, runner: Runner): Promise<unknown> {
   const given = runner.args.settings;
   if (given !== undefined && (typeof given !== "object" || given === null || Array.isArray(given))) {
@@ -103,6 +116,7 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
       }
     },
     { now: false },
+    widthOf(runner.args.width),
   );
   if (result.failed.length > 0) {
     throw new Error(`${String(result.failed.length)} notes could not be drawn: ${result.failed.map((one) => `${one.path} (${one.message})`).join("; ")}`);

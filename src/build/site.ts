@@ -77,6 +77,7 @@ let isBuilding = false;
  *
  * @param reviewed the sign of the choice that was looked over (`signatureOf`). The build is not done when the vault has changed since.
  * @param claim called with the place the site is written to, before anything of the build is there: from then on the place is the plugin's
+ * @param width how wide the part of Obsidian that shows the notes is taken to be, in pixels. Left out, it is as wide as it is now.
  */
 export async function buildSite(
   app: App,
@@ -86,13 +87,14 @@ export async function buildSite(
   claim: (place: string) => Promise<void>,
   progress: Progress,
   stop: { now: boolean },
+  width?: number,
 ): Promise<BuildResult> {
   if (isBuilding) {
     throw new Error("Another build is still running or stopping. Try again in a moment.");
   }
   isBuilding = true;
   try {
-    return await build(app, settings, version, reviewed, claim, progress, stop);
+    return await build(app, settings, version, reviewed, claim, progress, stop, width);
   } finally {
     isBuilding = false;
   }
@@ -106,6 +108,7 @@ async function build(
   claim: (place: string) => Promise<void>,
   progress: Progress,
   stop: { now: boolean },
+  width: number | undefined,
 ): Promise<BuildResult> {
   const start = Date.now();
   const { choice } = planSite(app, settings);
@@ -146,7 +149,7 @@ async function build(
   const doc = activeDocument;
   const stage = doc.body.createDiv({ cls: "vault-to-site-stage" });
   // What is drawn to fit its place, as a diagram is, is drawn as wide as Obsidian shows a note now
-  stage.setCssProps({ "--vault-to-site-stage-width": `${String(noteWidth(app, doc))}px` });
+  stage.setCssProps({ "--vault-to-site-stage-width": `${String(width ?? noteWidth(app, doc))}px` });
   const viewClass = viewClasses(app);
   const context: RenderContext = { app, noteIds, assets, resourceToPath: resourceMap(app), stage, viewClass, made: new Set(assets.values()) };
   const failed: BuildResult["failed"] = [];

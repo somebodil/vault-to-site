@@ -45,7 +45,7 @@ The dialog is where you look over what goes in. A build without it is there for 
   }
   ```
 
-  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
+  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
 
 ## What the site has
 
