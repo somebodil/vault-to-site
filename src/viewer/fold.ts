@@ -40,19 +40,47 @@ export function hiddenBlocks(blocks: readonly { level: number; isFolded: boolean
  * a triangle before a heading folds what is under it. Only the headings of
  * the note itself, which are the blocks at its top level.
  */
-export function addFolding(sizer: HTMLElement, triangle: string): void {
-  const apply = (): void => {
-    const blocks = Array.from(sizer.children);
-    const hidden = hiddenBlocks(
-      blocks.map((block) => {
-        const heading = headingOf(block);
-        return { level: levelOf(heading), isFolded: heading !== null && block.classList.contains("is-collapsed") };
-      }),
-    );
-    for (const [at, block] of blocks.entries()) {
-      block.classList.toggle(FOLDED, hidden[at] === true);
+/** Hides and shows the blocks of a note by which of its headings are folded */
+function apply(sizer: HTMLElement): void {
+  const blocks = Array.from(sizer.children);
+  const hidden = hiddenBlocks(
+    blocks.map((block) => {
+      const heading = headingOf(block);
+      return { level: levelOf(heading), isFolded: heading !== null && block.classList.contains("is-collapsed") };
+    }),
+  );
+  for (const [at, block] of blocks.entries()) {
+    block.classList.toggle(FOLDED, hidden[at] === true);
+  }
+}
+
+/**
+ * Opens the folded headings that hide something of a note, so that it can be
+ * gone to: a heading the outline names, a line a search found. What hides a
+ * block is the nearest folded heading before it that is itself seen. Under
+ * it there may be another one, which hides the block then.
+ */
+export function unfoldFor(sizer: HTMLElement, target: Element): void {
+  let block: Element | null = target;
+  while (block !== null && block.parentElement !== sizer) {
+    block = block.parentElement;
+  }
+  // No more turns than there are levels of headings
+  for (let turn = 0; block !== null && block.classList.contains(FOLDED) && turn < 6; turn++) {
+    let hider = block.previousElementSibling;
+    while (hider !== null && !(headingOf(hider) !== null && hider.classList.contains("is-collapsed") && !hider.classList.contains(FOLDED))) {
+      hider = hider.previousElementSibling;
     }
-  };
+    if (hider === null) {
+      return;
+    }
+    hider.classList.remove("is-collapsed");
+    hider.querySelector(".heading-collapse-indicator")?.classList.remove("is-collapsed");
+    apply(sizer);
+  }
+}
+
+export function addFolding(sizer: HTMLElement, triangle: string): void {
   for (const block of Array.from(sizer.children)) {
     const heading = headingOf(block);
     if (heading === null) {
@@ -65,7 +93,7 @@ export function addFolding(sizer: HTMLElement, triangle: string): void {
       // As in Obsidian, the block of the heading says that it is folded, and so does the triangle
       const isFolded = block.classList.toggle("is-collapsed");
       indicator.classList.toggle("is-collapsed", isFolded);
-      apply();
+      apply(sizer);
     });
     heading.prepend(indicator);
   }

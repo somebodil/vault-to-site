@@ -55,11 +55,11 @@ The dialog is where you look over what goes in. A build without it is there for 
 - **The graph of the whole site**, from a button above the note. It can be moved and sized; the note under the pointer shows its name and its links, and a click opens it.
 - **The note of a link** in a small window while the pointer rests on the link, as the page preview of Obsidian
 - **Headings that fold**, with the triangle before a heading
-- **Search** by the name of a note and by the words the notes show: press `/` or `Ctrl+K`
+- **Search** by the name of a note and by the words the notes show: press `/` or `Ctrl+K`. A line that is found opens its note at that line.
 - **Dark and light**, as Obsidian was when the site was built, with a button to change it
 - **An address for every note**, so the back and forward buttons of the browser work, a note that you come back to is where you left it, and a note or a heading can be bookmarked
 
-On a narrow window, as on a phone, the two sides open over the note.
+On a narrow window, as on a phone, the two sides lie under the note, and the note moves aside for them: by their buttons, or with a finger. A finger that moves the note to the right uncovers the files, one that moves it to the left the outline, and the other way covers them again. The note follows the finger, and where it is let go decides: past the middle, or flicked, and the side stays open. A wide table or a block of code is still moved sideways inside itself. This is made for Chrome and the browsers built on it, as Edge.
 
 ## Choosing what goes in
 

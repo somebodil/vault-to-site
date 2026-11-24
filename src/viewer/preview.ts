@@ -1,6 +1,6 @@
 import { readNoteAddress, type NotePage } from "../site-format.ts";
 import { el } from "./dom.ts";
-import { noteBlocks } from "./note.ts";
+import { findHeading, noteBlocks } from "./note.ts";
 
 export interface PreviewHost {
   /** True for a note of the site: only notes have a preview */
@@ -44,7 +44,8 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     }
     popover?.remove();
     const view = el("div", { cls: "markdown-preview-view markdown-rendered" });
-    view.append(...noteBlocks(page.html));
+    // The window shows a part of the note: its pictures are fetched as they come into sight
+    view.append(...noteBlocks(page.html, true));
     host.dress(view);
     const mine = el("div", { cls: "popover hover-popover v2s-popover" }, [
       el("div", { cls: "markdown-embed is-loaded" }, [el("div", { cls: "markdown-embed-content" }, [view])]),
@@ -59,9 +60,7 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
     mine.style.left = `${String(Math.max(8, Math.min(at.left, window.innerWidth - box.width - 8)))}px`;
     mine.style.top = `${String(below ? Math.min(at.bottom + 6, window.innerHeight - box.height - 8) : at.top - box.height - 6)}px`;
     if (heading !== "") {
-      Array.from(view.querySelectorAll("[data-heading]"))
-        .find((h) => h.getAttribute("data-heading") === heading)
-        ?.scrollIntoView({ block: "start" });
+      findHeading(Array.from(view.querySelectorAll("[data-heading]")), (h) => h.getAttribute("data-heading") ?? "", heading)?.scrollIntoView({ block: "start" });
     }
     mine.addEventListener("mouseenter", () => window.clearTimeout(leaving));
     mine.addEventListener("mouseleave", () => {
@@ -89,7 +88,8 @@ export function watchPreviews(root: HTMLElement, host: PreviewHost): void {
   root.addEventListener("mouseover", (event) => {
     const link = event.target instanceof Element ? event.target.closest("a[href^='#/']") : null;
     const href = link?.getAttribute("href") ?? "";
-    if (link === null) {
+    // Not for the rows of the files: a window under a row would cover the rows below it, which are what is looked for there
+    if (link === null || link.closest(".nav-files-container") !== null) {
       return;
     }
     if (href === wanted) {

@@ -1,14 +1,20 @@
 import type { SiteIndex } from "../site-format.ts";
 import { el } from "./dom.ts";
-import { findLines, nameScore, type Haystack } from "./find.ts";
+import { findLines, foldedNameScore, foldName, type Haystack } from "./find.ts";
 import { titleOf } from "./note.ts";
 
 export interface SearchHost {
   index: SiteIndex;
   /** The texts of the notes, once they are loaded. Starts the loading when asked the first time: a search by name does not need them. */
   texts(): { ready: Haystack[]; loading: Promise<void> | null };
-  /** Opens a note, and shows `find` in it when it is given */
-  go(id: string, find: string): void;
+  /** Opens a note, and shows what was found in it when that is given */
+  go(id: string, find: Found | null): void;
+}
+
+/** What a search found in a note: the words that fit, and the line of the row they stand in */
+export interface Found {
+  text: string;
+  line: string;
 }
 
 export interface Search {
@@ -32,6 +38,8 @@ export function createSearch(host: SearchHost): Search {
     id,
     path: entry.p,
     title: titleOf(entry.p),
+    // In lower case once, not for every name at every key
+    folded: foldName(titleOf(entry.p)),
     isNote: host.index.notes[id] !== undefined,
   }));
   // In the order of their paths once: a search then sorts only by how well a name fits, and names that fit as well stay in this order
@@ -88,13 +96,14 @@ export function createSearch(host: SearchHost): Search {
       const typed = input.value.trim();
       results.replaceChildren();
       rows = [];
+      const foldedTyped = foldName(typed);
       const named = names
-        .map((entry) => ({ entry, score: typed === "" ? (entry.isNote ? 1 : 0) : nameScore(typed, entry.title) }))
+        .map((entry) => ({ entry, score: typed === "" ? (entry.isNote ? 1 : 0) : foldedNameScore(foldedTyped, entry.folded) }))
         .filter((x) => x.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, typed === "" ? 30 : MOST_NAMES);
       for (const { entry } of named) {
-        row(entry.title, folderOf(entry.path), () => host.go(entry.id, ""));
+        row(entry.title, folderOf(entry.path), () => host.go(entry.id, null));
       }
       if (typed.length >= 2) {
         const { ready, loading } = host.texts();
@@ -123,7 +132,7 @@ export function createSearch(host: SearchHost): Search {
               el("span", { cls: "suggestion-highlight", text: found }),
               document.createTextNode(line.text.slice(line.end)),
             ]);
-            row(titleOf(path), snippet, () => host.go(hay.id, found));
+            row(titleOf(path), snippet, () => host.go(hay.id, { text: found, line: line.text }));
             shown++;
           }
         }

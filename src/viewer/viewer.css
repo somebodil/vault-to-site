@@ -279,32 +279,124 @@ video.v2s-left-out {
   white-space: nowrap;
 }
 
-/* ---- A narrow window: the sides lie over the note ---- */
+/*
+ * ---- A narrow window: the sides lie under the note, and the note moves aside for them ----
+ *
+ * A button moves it, or a finger that goes sideways (swipe.ts). The note is
+ * moved with `transform`, which the browser does without laying the page out
+ * again.
+ */
 
 @media (max-width: 750px) {
+  .v2s-app {
+    --v2s-side: min(86vw, 340px);
+    --v2s-slide: 0.22s;
+    /* Up and down is the browser's. Sideways is left to the script, where nothing scrolls that way. */
+    touch-action: pan-y pinch-zoom;
+  }
+
+  /* What scrolls up and down is told the same, each for itself: a browser asks the nearest thing that scrolls */
+  .v2s-left .nav-files-container,
+  .v2s-right,
+  .v2s-main .markdown-preview-view {
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  /* A note that is wider than the window is the browser's to move sideways as well */
+  .v2s-main .markdown-preview-view.v2s-wide {
+    touch-action: pan-x pan-y pinch-zoom;
+  }
+
   .v2s-left,
   .v2s-right {
     position: fixed;
     top: 0;
     bottom: 0;
-    z-index: 30;
-    width: min(86vw, 340px);
+    z-index: 0;
+    box-sizing: border-box;
+    width: var(--v2s-side);
+    border: 0;
+    visibility: hidden;
+    /* Covered sides are hidden when the note has come back over them, not before */
+    transition: visibility 0s linear var(--v2s-slide);
   }
 
   .v2s-left {
     left: 0;
+    display: flex;
   }
 
   .v2s-right {
     right: 0;
+    display: block;
+  }
+
+  .v2s-show-left .v2s-left,
+  .v2s-moving-left .v2s-left,
+  .v2s-show-right .v2s-right,
+  .v2s-moving-right .v2s-right {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .v2s-main {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+    background-color: var(--background-primary, #fff);
+    transition:
+      transform var(--v2s-slide) ease-out,
+      border-radius var(--v2s-slide) ease-out,
+      box-shadow var(--v2s-slide) ease-out;
+  }
+
+  .v2s-show-left .v2s-main {
+    transform: translate3d(var(--v2s-side), 0, 0);
+  }
+
+  .v2s-show-right .v2s-main {
+    transform: translate3d(calc(-1 * var(--v2s-side)), 0, 0);
+  }
+
+  .v2s-show-left .v2s-main,
+  .v2s-show-right .v2s-main,
+  .v2s-moving .v2s-main {
+    border-radius: 18px;
+    box-shadow: 0 0 32px rgba(0, 0, 0, 0.3);
+  }
+
+  /* With a finger on it, the note is where the finger is, at once */
+  .v2s-moving .v2s-main {
+    transition: none;
+    will-change: transform;
+  }
+
+  .v2s-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    background-color: rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--v2s-slide) ease-out;
   }
 
   .v2s-show-left .v2s-scrim,
   .v2s-show-right .v2s-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    display: block;
-    background-color: rgba(0, 0, 0, 0.4);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .v2s-moving .v2s-scrim {
+    pointer-events: auto;
+    transition: none;
+  }
+}
+
+@media (max-width: 750px) and (prefers-reduced-motion: reduce) {
+  .v2s-app {
+    --v2s-slide: 0s;
   }
 }

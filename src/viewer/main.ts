@@ -1,12 +1,13 @@
 import { readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, type Haystack } from "./find.ts";
-import { addFolding } from "./fold.ts";
+import { addFolding, unfoldFor } from "./fold.ts";
 import { graphView } from "./graph.ts";
 import { dressEmbeds, dressLists } from "./dress.ts";
-import { copyText, fileView, noteBlocks, propertiesView, titleOf } from "./note.ts";
+import { copyText, fileView, findHeading, noteBlocks, propertiesView, titleOf } from "./note.ts";
 import { watchPreviews } from "./preview.ts";
-import { createSearch } from "./search.ts";
+import { createSearch, type Found } from "./search.ts";
+import { watchSwipe, type Side } from "./swipe.ts";
 import { buildTree, firstNote, treeView } from "./tree.ts";
 
 /**
@@ -20,7 +21,14 @@ import { buildTree, firstNote, treeView } from "./tree.ts";
  * notes, and an address can be kept or passed on.
  */
 
+/**
+ * The notes that are loaded, the one used last at the end. Not all that were
+ * ever asked for: a note is asked for when the pointer only rests on a link
+ * to it, and a long visit to a large site would hold hundreds that were
+ * never read.
+ */
 const pages = new Map<string, NotePage>();
+const MOST_PAGES = 60;
 /** The texts to search in, as the scripts of the data hand them over */
 const texts: Haystack[] = [];
 
@@ -29,7 +37,14 @@ const site: SiteGlobal = {
     start(loaded);
   },
   note(id, page) {
+    pages.delete(id);
     pages.set(id, page);
+    for (const oldest of pages.keys()) {
+      if (pages.size <= MOST_PAGES) {
+        break;
+      }
+      pages.delete(oldest);
+    }
   },
   search(_part, entries) {
     for (const [id, text] of entries) {
@@ -52,7 +67,13 @@ async function loadNote(id: string): Promise<NotePage | null> {
     await request;
     loading.delete(id);
   }
-  return pages.get(id) ?? null;
+  const page = pages.get(id);
+  if (page !== undefined) {
+    // Used now: it is the last to give way
+    pages.delete(id);
+    pages.set(id, page);
+  }
+  return page ?? null;
 }
 
 function start(index: SiteIndex): void {
@@ -108,7 +129,8 @@ function start(index: SiteIndex): void {
       return { ready: texts, loading: searchLoading };
     },
     go(id, find) {
-      if (current === id && find !== "") {
+      // The address does not change for a note that is open or on its way: nothing would be told of it
+      if (window.location.hash === "#/" + id || (current === id && find !== null)) {
         void show(id, "", find);
         return;
       }
@@ -142,6 +164,20 @@ function start(index: SiteIndex): void {
     { cls: `markdown-preview-view markdown-rendered node-insert-event ${viewClass}` },
     [sizer],
   );
+  // A note that is wider than the window, as with a wide diagram, is moved sideways by a finger as a whole.
+  // The style sheet leaves that to the browser only where there is something to move: see the narrow window there.
+  /** Where a note that was come back to is to be scrolled to, until the reader moves it or it has stood long enough */
+  let putBack: number | null = null;
+  new ResizeObserver(() => {
+    scroller.classList.toggle("v2s-wide", scroller.scrollWidth > scroller.clientWidth + 1);
+    // A picture that arrives makes the note taller: the place is counted from its top, so it is set again
+    if (putBack !== null) {
+      scroller.scrollTop = putBack;
+    }
+  }).observe(sizer);
+  for (const type of ["wheel", "touchstart", "keydown", "mousedown"]) {
+    scroller.addEventListener(type, () => (putBack = null), { passive: true });
+  }
   const titleParent = el("div", { cls: "view-header-title-parent" });
   const title = el("div", { cls: "view-header-title" });
   const outline = el("div", { cls: "v2s-pane-body" });
@@ -166,7 +202,13 @@ function start(index: SiteIndex): void {
     },
   });
   onLook.push(() => localGraph.repaint());
+  let isGraphOpen = false;
   const openGraph = (): void => {
+    // The button keeps the keyboard after it was pressed: pressing it again is not a second graph
+    if (isGraphOpen) {
+      return;
+    }
+    isGraphOpen = true;
     const whole = graphView({
       ...graphHost,
       go(id) {
@@ -175,6 +217,7 @@ function start(index: SiteIndex): void {
       },
     });
     const closeGraph = (): void => {
+      isGraphOpen = false;
       whole.stop();
       modal.remove();
       window.removeEventListener("keydown", onKey);
@@ -218,20 +261,24 @@ function start(index: SiteIndex): void {
     ]),
     el("div", { cls: "view-content" }, [el("div", { cls: "markdown-reading-view" }, [scroller])]),
   ]);
+  // What darkens the note while it is moved aside, and takes the touch that moves it back
   const scrim = el("div", { cls: "v2s-scrim" });
-  const app = el("div", { cls: "v2s-app" }, [left, main, right, scrim]);
+  main.appendChild(scrim);
+  const app = el("div", { cls: "v2s-app" }, [left, main, right]);
   body.appendChild(app);
 
-  // ---- The two sides: next to the note on a wide window, over it on a narrow one ----
+  // ---- The two sides: next to the note on a wide window, under it on a narrow one, where the note moves aside for them ----
   const narrow = window.matchMedia("(max-width: 750px)");
   const shown = { left: false, right: false };
+  /** The side a finger is uncovering or covering on a narrow window: it is seen, though it is not open yet or any more */
+  let moving: Side | null = null;
   /**
    * The note that is open with the notes it links to and the notes that link
    * to it. Placed only while the side is seen: on a phone it mostly is not.
    */
   let graphOf: string | null = null;
   const drawLocalGraph = (): void => {
-    if (!shown.right || graphOf === current) {
+    if ((!shown.right && moving !== "right") || graphOf === current) {
       return;
     }
     graphOf = current;
@@ -269,17 +316,61 @@ function start(index: SiteIndex): void {
     }
   };
   scrim.addEventListener("click", closeOnNarrow);
-  narrow.addEventListener("change", sidesForWidth);
+
+  // A finger moves the note aside. While it does, the place of the note is set on the note itself: a class
+  // or a variable would have the browser work out the styles of the whole note at every move.
+  const letGo = (): void => {
+    moving = null;
+    main.style.transform = "";
+    scrim.style.opacity = "";
+    app.classList.remove("v2s-moving", "v2s-moving-left", "v2s-moving-right");
+  };
+  const swipe = (): (() => void) =>
+    watchSwipe(app, {
+      open: () => (shown.left ? "left" : shown.right ? "right" : null),
+      // As the style sheet has it, to the part of a pixel: the note ends where a button would put it
+      width: (side) => (side === "left" ? left : right).getBoundingClientRect().width,
+      begin(side) {
+        moving = side;
+        app.classList.add("v2s-moving", `v2s-moving-${side}`);
+        drawLocalGraph();
+      },
+      move(shift, part) {
+        main.style.transform = `translate3d(${String(shift)}px, 0, 0)`;
+        scrim.style.opacity = String(part);
+      },
+      end(side, open) {
+        letGo();
+        shown.left = open && side === "left";
+        shown.right = open && side === "right";
+        applySides();
+      },
+    });
+  // Fingers are watched only while the window is narrow: on a wide one nothing is asked of the browser
+  let stopSwipe = narrow.matches ? swipe() : null;
+  narrow.addEventListener("change", () => {
+    stopSwipe?.();
+    stopSwipe = narrow.matches ? swipe() : null;
+    letGo();
+    sidesForWidth();
+  });
   sidesForWidth();
 
   // ---- Showing a note ----
   let drawing = 0;
 
   /** What a search asked to be shown in the note it leads to */
-  let pendingFind = "";
+  let pendingFind: Found | null = null;
 
-  const show = async (id: string, heading: string, find: string): Promise<void> => {
+  /** Scrolls to something in the note, after opening the folded headings that hide it */
+  const bring = (target: Element, block: ScrollLogicalPosition): void => {
+    unfoldFor(sizer, target);
+    target.scrollIntoView({ block });
+  };
+
+  const show = async (id: string, heading: string, find: Found | null): Promise<void> => {
     const turn = ++drawing;
+    putBack = null;
     const note = index.notes[id];
     const file = index.files[id];
     const path = note?.p ?? file?.p;
@@ -293,6 +384,53 @@ function start(index: SiteIndex): void {
       drawLocalGraph();
       return;
     }
+    // A note that is shown already is not drawn again for another place in it: what the reader folded stays folded
+    if (id !== current && !(await draw(id, path, turn, heading, find))) {
+      return;
+    }
+
+    const found = find !== null ? textPlace(find) : null;
+    const state: unknown = window.history.state;
+    if (found !== null) {
+      unfoldFor(sizer, found.block);
+      if (found.text === null) {
+        found.block.scrollIntoView({ block: "start" });
+      } else {
+        // A line of a long block, as of a block of code: the line is brought into sight, a third down the window
+        const line = document.createRange();
+        line.selectNodeContents(found.text);
+        scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3;
+      }
+      flash(found.text?.parentElement ?? found.block);
+    } else if (isPlace(state) && state.id === id) {
+      // A note that is come back to with the buttons of the browser is where it was left, also when its address names a heading
+      putBack = state.scroll;
+      scroller.scrollTop = state.scroll;
+      window.setTimeout(() => {
+        if (turn === drawing) {
+          putBack = null;
+        }
+      }, 4000);
+    } else {
+      const named = heading !== "" ? headingEl(heading) : null;
+      if (named !== null) {
+        bring(named, "start");
+        flash(named);
+      } else {
+        scroller.scrollTop = 0;
+      }
+    }
+  };
+
+  const flash = (target: Element): void => {
+    target.classList.add("v2s-flash");
+    window.setTimeout(() => target.classList.remove("v2s-flash"), 1600);
+  };
+
+  /** Draws a note into the page. False when it could not be, or another note was asked for meanwhile. */
+  const draw = async (id: string, path: string, turn: number, heading: string, find: Found | null): Promise<boolean> => {
+    const note = index.notes[id];
+    const file = index.files[id];
     const slash = path.lastIndexOf("/");
     titleParent.textContent = slash === -1 ? "" : path.slice(0, slash + 1);
     title.textContent = titleOf(path);
@@ -314,11 +452,18 @@ function start(index: SiteIndex): void {
     } else {
       const page = await loadNote(id);
       if (turn !== drawing) {
-        return;
+        return false;
       }
       if (page === null) {
-        sizer.replaceChildren(el("div", { cls: "v2s-empty", text: "This note could not be loaded." }));
-        return;
+        // Nothing of the note before is left standing, as if it were this one, and the note can be asked for again
+        current = "";
+        const again = el("a", { text: "Try again", attr: { href: "#", role: "button" } });
+        again.addEventListener("click", () => void show(id, heading, find));
+        sizer.replaceChildren(el("div", { cls: "v2s-empty" }, [document.createTextNode("This note could not be loaded. "), again]));
+        drawOutline([]);
+        backlinks.replaceChildren();
+        drawLocalGraph();
+        return false;
       }
       if (page.props.length > 0) {
         header.appendChild(propertiesView(page.props, icons));
@@ -337,36 +482,81 @@ function start(index: SiteIndex): void {
     drawOutline(headings);
     drawBacklinks(id);
     drawLocalGraph();
-
-    const target = heading !== "" ? headingEl(heading) : find !== "" ? textEl(find) : null;
-    if (target !== null) {
-      target.scrollIntoView({ block: "start" });
-      target.classList.add("v2s-flash");
-      window.setTimeout(() => target.classList.remove("v2s-flash"), 1600);
-    } else {
-      // A note that is come back to with the buttons of the browser is where it was left
-      const state: unknown = window.history.state;
-      scroller.scrollTop = isPlace(state) && state.id === id ? state.scroll : 0;
-    }
+    return true;
   };
 
   /** The headings of the note itself, not those of notes embedded in it */
   const ownHeadings = (): HTMLElement[] =>
     Array.from(sizer.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")).filter((h) => h.closest(".markdown-embed") === null);
 
+  /** The heading an address names: as it is written, or else as Obsidian would still find it */
   const headingEl = (heading: string): HTMLElement | null =>
-    ownHeadings().find((h) => h.getAttribute("data-heading") === heading || h.textContent.trim() === heading) ?? null;
+    findHeading(ownHeadings(), (h) => h.getAttribute("data-heading") ?? h.textContent.trim(), heading);
 
-  /** The first element whose own text holds what was searched for */
-  const textEl = (find: string): HTMLElement | null => {
-    const wanted = find.toLowerCase();
-    const walker = document.createTreeWalker(sizer, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      if ((node.textContent ?? "").toLowerCase().includes(wanted)) {
-        return node.parentElement;
+  /**
+   * Where in the note a search found its words: the block that holds the
+   * line of the row that was chosen, and without one, the first block that
+   * holds the words. In that block, the smallest part that still holds
+   * them, as one row of a table, and in that part the piece of text on the
+   * line, as one line of a block of code.
+   *
+   * Words are compared as they are read, not as they are marked up: a line
+   * with a word in bold is one line, and what stands above the note, as its
+   * name, is not looked at.
+   */
+  const textPlace = (find: Found): { block: Element; text: Text | null } | null => {
+    const plain = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+    const words = plain(find.text);
+    // A row shows a line cut to fit, with a sign where it was cut
+    const line = plain(find.line.replace(/^…/, ""));
+    if (words === "") {
+      return null;
+    }
+    let first: { block: Element; wanted: string } | null = null;
+    for (const block of Array.from(sizer.children)) {
+      if (block.classList.contains("mod-ui") || block.classList.contains("markdown-preview-pusher")) {
+        continue;
+      }
+      const text = plain(block.textContent);
+      if (line !== "" && text.includes(line)) {
+        first = { block, wanted: line };
+        break;
+      }
+      if (first === null && text.includes(words)) {
+        first = { block, wanted: words };
       }
     }
-    return null;
+    if (first === null) {
+      return null;
+    }
+    const { wanted } = first;
+    let at = first.block;
+    for (;;) {
+      const inner: Element | undefined = Array.from(at.children).find((child) => plain(child.textContent).includes(wanted));
+      if (inner === undefined) {
+        break;
+      }
+      at = inner;
+    }
+    // The piece of text that holds the words, on the line of the row where several lines hold them
+    const whole = at.textContent;
+    const walker = document.createTreeWalker(at, NodeFilter.SHOW_TEXT);
+    let anywhere: Text | null = null;
+    let offset = 0;
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const piece = node.textContent ?? "";
+      if (node instanceof Text && plain(piece).includes(words)) {
+        const from = offset + Math.max(0, piece.toLowerCase().indexOf(words.split(" ")[0] ?? ""));
+        const next = whole.indexOf("\n", from);
+        const around = plain(whole.slice(whole.lastIndexOf("\n", from) + 1, next === -1 ? whole.length : next));
+        if (line === "" || around.includes(line) || (around !== "" && line.includes(around))) {
+          return { block: at, text: node };
+        }
+        anywhere ??= node;
+      }
+      offset += piece.length;
+    }
+    return { block: at, text: anywhere };
   };
 
   const drawOutline = (headings: [number, string][]): void => {
@@ -385,7 +575,10 @@ function start(index: SiteIndex): void {
           // A heading on the page that the list does not know, as one inside a callout, does not shift the others.
           const before = headings.slice(0, at).filter(([, other]) => other === text).length;
           const same = ownHeadings().filter((h) => (h.getAttribute("data-heading") ?? h.textContent.trim()) === text);
-          (same[before] ?? same[0] ?? ownHeadings()[at])?.scrollIntoView({ block: "start" });
+          const target = same[before] ?? same[0] ?? ownHeadings()[at];
+          if (target !== undefined) {
+            bring(target, "start");
+          }
           closeOnNarrow();
         });
         return el("div", { cls: "tree-item" }, [row]);
@@ -448,22 +641,43 @@ function start(index: SiteIndex): void {
     const href = anchor?.getAttribute("href") ?? "";
     if (anchor !== null && !href.startsWith("#/")) {
       event.preventDefault();
-      if (href.length > 1) {
-        sizer.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: "center" });
+      const target = href.length > 1 ? sizer.querySelector(`[id="${CSS.escape(href.slice(1))}"]`) : null;
+      if (target !== null) {
+        bring(target, "center");
       }
     }
   });
 
-  // A note is asked for when the pointer comes to a link to it, so that it is there at the click
-  const ahead = (event: Event): void => {
+  // A note is asked for when the pointer rests on a link to it, so that it is there at the click. Not for a
+  // pointer that only passes: moving down the list of files would ask for every note in it.
+  let resting = 0;
+  const linked = (event: Event): string | undefined => {
     const href = event.target instanceof Element ? event.target.closest("a[href^='#/']")?.getAttribute("href") : null;
     const id = href === null || href === undefined ? undefined : readNoteAddress(href).id;
-    if (id !== undefined && index.notes[id] !== undefined) {
-      void loadNote(id);
-    }
+    return id !== undefined && index.notes[id] !== undefined ? id : undefined;
   };
-  app.addEventListener("mouseover", ahead, { passive: true });
-  app.addEventListener("touchstart", ahead, { passive: true });
+  app.addEventListener(
+    "mouseover",
+    (event) => {
+      window.clearTimeout(resting);
+      const id = linked(event);
+      if (id !== undefined) {
+        resting = window.setTimeout(() => void loadNote(id), 80);
+      }
+    },
+    { passive: true },
+  );
+  // A finger that comes down on a link is about to open it
+  app.addEventListener(
+    "touchstart",
+    (event) => {
+      const id = linked(event);
+      if (id !== undefined) {
+        void loadNote(id);
+      }
+    },
+    { passive: true },
+  );
 
   watchPreviews(app, {
     isNote: (id) => index.notes[id] !== undefined,
@@ -481,7 +695,8 @@ function start(index: SiteIndex): void {
     () => {
       window.clearTimeout(noting);
       noting = window.setTimeout(() => {
-        if (current !== "") {
+        // Not while the note is still being put back where it was: its place then is not the reader's
+        if (current !== "" && putBack === null) {
           try {
             window.history.replaceState({ id: current, scroll: scroller.scrollTop }, "");
           } catch {
@@ -495,7 +710,8 @@ function start(index: SiteIndex): void {
 
   window.addEventListener("keydown", (event) => {
     const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
-    if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "o" || event.key === "p")) {
+    // Not the key that prints: a note of the site can be printed as any page
+    if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "o")) {
       event.preventDefault();
       search.open("");
     } else if (event.key === "/" && !typing) {
@@ -517,7 +733,7 @@ function start(index: SiteIndex): void {
     const { id, heading } = readNoteAddress(window.location.hash);
     const wanted = id !== "" ? id : (firstNote(root, index) ?? "");
     const find = pendingFind;
-    pendingFind = "";
+    pendingFind = null;
     void show(wanted, heading, find);
   };
   window.addEventListener("hashchange", route);

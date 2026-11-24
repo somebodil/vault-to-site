@@ -84,7 +84,8 @@ export function treeView(root: Folder, index: SiteIndex, triangle: string, open:
   /** For every folder: its element, the place of its rows, and whether they were made */
   const drawn = new Map<string, { item: HTMLElement; children: HTMLElement; folder: Folder; isMade: boolean }>();
 
-  const setOpen = (path: string, isOpen: boolean): void => {
+  /** @param isKept false for a folder that is opened to show a note in it: only what the reader opens is kept for the next visit */
+  const setOpen = (path: string, isOpen: boolean, isKept = true): void => {
     const entry = drawn.get(path);
     if (entry === undefined) {
       return;
@@ -95,9 +96,9 @@ export function treeView(root: Folder, index: SiteIndex, triangle: string, open:
     }
     entry.item.classList.toggle("is-collapsed", !isOpen);
     entry.item.querySelector(":scope > .tree-item-self > .collapse-icon")?.classList.toggle("is-collapsed", !isOpen);
-    if (isOpen) {
+    if (isOpen && isKept) {
       open.add(path);
-    } else {
+    } else if (!isOpen) {
       open.delete(path);
     }
   };
@@ -144,14 +145,13 @@ export function treeView(root: Folder, index: SiteIndex, triangle: string, open:
       const path = index.notes[id]?.p ?? index.files[id]?.p ?? "";
       const parts = path.split("/").slice(0, -1);
       for (let depth = 1; depth <= parts.length; depth++) {
-        setOpen(parts.slice(0, depth).join("/"), true);
+        setOpen(parts.slice(0, depth).join("/"), true, false);
       }
       active = rows.get(id) ?? null;
       if (active !== null) {
         active.classList.add("is-active");
         active.scrollIntoView({ block: "nearest" });
       }
-      onToggle();
     },
   };
 }

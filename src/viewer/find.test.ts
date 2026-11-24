@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { findLines, haystack, nameScore } from "./find.ts";
+import { findLines, foldedNameScore, foldName, haystack, nameScore } from "./find.ts";
 
 describe("nameScore", () => {
   it("puts the whole name first, then the start, a word, the middle, and letters in order", () => {
     const scores = ["Setup", "Setup guide", "My setup", "Presetup", "S-e-t-u-p"].map((name) => nameScore("setup", name));
     assert.deepEqual(scores, [5, 4, 3, 2, 1]);
+  });
+
+  it("is the same for a name and what was typed that were put in lower case before", () => {
+    for (const name of ["Setup", "Setup guide", "My setup", "Presetup", "S-e-t-u-p", "Other"]) {
+      assert.equal(foldedNameScore(foldName("SetUp"), foldName(name)), nameScore(" SetUp ", name), name);
+    }
   });
 
   it("is 0 for a name without the letters, and for nothing typed", () => {
@@ -60,6 +66,14 @@ describe("findLines", () => {
     assert.equal(hits.length, 1);
     assert.equal(hits[0]?.text, "Turn the plugin on.");
     assert.deepEqual(findLines("plugin nowhere", hay, 5), []);
+  });
+
+  it("marks the longest of the words in such a line, in whatever order they were typed", () => {
+    for (const typed of ["turn plugin", "plugin turn"]) {
+      const hit = findLines(typed, hay, 5)[0];
+      assert.ok(hit !== undefined, typed);
+      assert.equal(hit.text.slice(hit.start, hit.end), "plugin", typed);
+    }
   });
 
   it("cuts a long line around the match", () => {

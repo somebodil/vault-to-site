@@ -7,6 +7,28 @@ export function titleOf(path: string): string {
 }
 
 /**
+ * A heading as it is compared when a link names it in other letters than it
+ * is written in: Obsidian finds "Step 1: Install" for a link to "step 1
+ * install". Letters and digits in lower case, with one space where anything
+ * else stands.
+ */
+export function headingKey(heading: string): string {
+  return heading
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * The heading among these that a link names: the one written the same, and
+ * without one, the first that is the same when compared loosely.
+ */
+export function findHeading<T>(headings: readonly T[], textOf: (heading: T) => string, wanted: string): T | null {
+  const key = headingKey(wanted);
+  return headings.find((h) => textOf(h) === wanted) ?? (key === "" ? null : (headings.find((h) => headingKey(textOf(h)) === key) ?? null));
+}
+
+/**
  * Reads a note back as it was written: as XML, so that a block inside a
  * paragraph stays there. Should a browser refuse the XML, the note is read as
  * HTML, which shows the same words with some of the nesting lost.
@@ -19,9 +41,9 @@ export function titleOf(path: string): string {
  * first block of a note has no space above it, and a rule can be given for
  * `.el-h2 + .el-p`.
  */
-export function noteBlocks(xml: string): HTMLElement[] {
+export function noteBlocks(xml: string, isLazy = false): HTMLElement[] {
   const blocks: HTMLElement[] = [];
-  for (const node of noteNodes(xml)) {
+  for (const node of noteNodes(xml, isLazy)) {
     if (node instanceof Element) {
       const name = node.localName.toLowerCase();
       // What Obsidian draws from a block of code, as a diagram, keeps the name of the block it was written as
@@ -34,10 +56,17 @@ export function noteBlocks(xml: string): HTMLElement[] {
   return blocks;
 }
 
-function noteNodes(xml: string): Node[] {
+/** @param isLazy pictures and frames are fetched when they come into sight, not at once: for a small window on a note, which shows a part of it */
+function noteNodes(xml: string, isLazy: boolean): Node[] {
   const parsed = new DOMParser().parseFromString(`<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`, "application/xhtml+xml");
   const root = parsed.documentElement;
   if (root.localName === "div" && parsed.getElementsByTagName("parsererror").length === 0) {
+    if (isLazy) {
+      // Said while the note is still in the document it was read into, where nothing is fetched yet
+      for (const media of Array.from(root.querySelectorAll("img, iframe"))) {
+        media.setAttribute("loading", "lazy");
+      }
+    }
     // Moved, not copied: the document they were read into is not used again
     return Array.from(document.adoptNode(root).childNodes);
   }

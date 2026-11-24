@@ -9,8 +9,14 @@ const fold = (text: string): string => text.toLowerCase();
  * order with others between them.
  */
 export function nameScore(query: string, name: string): number {
-  const q = fold(query.trim());
-  const n = fold(name);
+  return foldedNameScore(fold(query.trim()), fold(name));
+}
+
+/** A name in the form `foldedNameScore` compares: made once for a name, not at every key */
+export const foldName = fold;
+
+/** `nameScore` for what was typed and a name that are both folded already (`foldName`), the typed text trimmed */
+export function foldedNameScore(q: string, n: string): number {
   if (q === "") {
     return 0;
   }
@@ -115,14 +121,15 @@ export function findLines(query: string, hay: Haystack, limit: number): LineHit[
     return hits;
   }
   const words = q.split(/\s+/).filter((word) => word !== "");
-  const first = words[0];
-  if (first === undefined || words.length < 2) {
+  // The longest word leads: it is in the fewest lines, so the fewest lines are looked at for the others
+  const lead = words.reduce((longest, word) => (word.length > longest.length ? word : longest), "");
+  if (lead === "" || words.length < 2) {
     return hits;
   }
-  scan(first, (start, end, at) => {
+  scan(lead, (start, end, at) => {
     const line = folded.slice(start, end);
     if (words.every((word) => line.includes(word))) {
-      hits.push(cut(text.slice(start, end), at - start, first.length));
+      hits.push(cut(text.slice(start, end), at - start, lead.length));
     }
   });
   return hits;
