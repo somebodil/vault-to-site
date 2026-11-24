@@ -183,6 +183,89 @@ describe("choose with only marked notes", () => {
   });
 });
 
+describe("choose with only the paths that are named", () => {
+  const some: VaultFile[] = [
+    { path: "Guide/Setup.md", isNote: true, uses: ["Attachments/pic.png", "Notes/Plan.md"] },
+    { path: "Guide/Draft.md", isNote: true, properties: { publish: false } },
+    { path: "Guide/Private/Key.md", isNote: true },
+    { path: "Notes/Plan.md", isNote: true, uses: ["Attachments/plan.png"] },
+    { path: "Notes/Unread.md", isNote: true, unread: "its properties cannot be read" },
+    { path: "Guide/Unread.md", isNote: true, unread: "its properties cannot be read" },
+    { path: "Attachments/pic.png", isNote: false },
+    { path: "Attachments/plan.png", isNote: false },
+  ];
+  const named = (include: string, exclude = ""): ChoiceRules => ({ ...rules([""], [], exclude), include: parseExcludeRules(include) });
+
+  it("takes in a ticked note only when a pattern matches its path", () => {
+    const choice = choose(some, named("^guide/"));
+    assert.deepEqual(choice.notes, ["Guide/Private/Key.md", "Guide/Setup.md"]);
+    assert.deepEqual(choice.unnamed, ["Notes/Plan.md", "Notes/Unread.md"]);
+    assert.deepEqual(choice.cut, [{ from: "Guide/Setup.md", to: "Notes/Plan.md" }]);
+  });
+
+  it("asks no pattern of a file that is not a note: it comes with the note that uses it", () => {
+    const choice = choose(some, named("^Guide/"));
+    assert.deepEqual(choice.files, ["Attachments/pic.png"]);
+  });
+
+  it("lets a rule that keeps out win over a pattern that takes in", () => {
+    const choice = choose(some, named("^Guide/", "/Private/"));
+    assert.deepEqual(choice.notes, ["Guide/Setup.md"]);
+    assert.deepEqual(choice.byPattern, ["Guide/Private/Key.md"]);
+    assert.deepEqual(choice.byProperty.map((x) => x.path), ["Guide/Draft.md"]);
+    // A note that is named and whose properties are not known stays out, and is said to be so
+    assert.deepEqual(choice.unread.map((x) => x.path), ["Guide/Unread.md"]);
+  });
+
+  it("does not take in what is not ticked", () => {
+    const choice = choose(some, { ...rules(["Notes"]), include: parseExcludeRules("^Guide/, Plan") });
+    assert.deepEqual(choice.notes, ["Notes/Plan.md"]);
+    assert.deepEqual(choice.unnamed, ["Notes/Unread.md"]);
+  });
+
+  it("works together with the mark of a property", () => {
+    const marked: VaultFile[] = [
+      { path: "Guide/a.md", isNote: true, properties: { publish: true } },
+      { path: "Guide/b.md", isNote: true },
+      { path: "Notes/c.md", isNote: true, properties: { publish: true } },
+    ];
+    const choice = choose(marked, { ...named("^Guide/"), only: parsePropertyRules("publish: true") });
+    assert.deepEqual(choice.notes, ["Guide/a.md"]);
+    assert.deepEqual(choice.unnamed, ["Notes/c.md"]);
+    assert.deepEqual(choice.unmarked, ["Guide/b.md"]);
+  });
+
+  it("takes every ticked note when there is no pattern", () => {
+    assert.deepEqual(choose(some, named("")).unnamed, []);
+    assert.deepEqual(choose(some, named("")).notes, choose(some, rules([""])).notes);
+  });
+
+  it("still guards the names of the notes a rule is meant for", () => {
+    assert.deepEqual(choose(some, named("^Notes/")).guarded, ["Guide/Draft.md", "Guide/Unread.md", "Notes/Unread.md"]);
+  });
+});
+
+describe("choose with a property rule that is a regular expression", () => {
+  const some: VaultFile[] = [
+    { path: "a.md", isNote: true, properties: { type: "knowledge" } },
+    { path: "b.md", isNote: true, properties: { type: "private" } },
+    { path: "c.md", isNote: true, properties: { type: "meta" } },
+    { path: "d.md", isNote: true },
+  ];
+
+  it("keeps out by it, and takes in only by it", () => {
+    const out = choose(some, { ...rules([""]), properties: parsePropertyRules("type: /^(private|meta)$/") });
+    assert.deepEqual(out.notes, ["a.md", "d.md"]);
+    assert.deepEqual(out.byProperty.map((x) => [x.path, x.rule.value]), [
+      ["b.md", "/^(private|meta)$/"],
+      ["c.md", "/^(private|meta)$/"],
+    ]);
+    const only = choose(some, { ...rules([""]), properties: [], only: parsePropertyRules("type: /^know/") });
+    assert.deepEqual(only.notes, ["a.md"]);
+    assert.deepEqual(only.unmarked, ["b.md", "c.md", "d.md"]);
+  });
+});
+
 describe("signatureOf", () => {
   it("is the same for the same notes and files, and another for others", () => {
     const one = choose(files, rules(["Home.md", "Guide"]));

@@ -2,7 +2,7 @@ import { type App, normalizePath } from "obsidian";
 import { choose, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
 import { planExtra, type KindOfPath } from "../select/extra.ts";
-import { invalidPropertyLines, parsePropertyRules } from "../select/properties.ts";
+import { parsePropertyRules, propertyProblems } from "../select/properties.ts";
 import { isAtOrUnder } from "../select/ticks.ts";
 import { placeOf, type Settings } from "../settings.ts";
 import { OLD, PART, SITE_NAMES } from "./output.ts";
@@ -54,20 +54,24 @@ export function readVault(app: App, settings: Settings): VaultFile[] {
  * regular expression, a line that is not a property, an extra file that is
  * not there. Such a rule keeps nothing out, and what it was written for
  * would go in, or the site would lack what it was to have: a site is not
- * built while there is one.
+ * built while there is one. A pattern to take in by that does not work
+ * would leave out what it was written for, and stops a build as well.
  */
 export function planSite(app: App, settings: Settings, files: readonly VaultFile[] = readVault(app, settings)): { choice: Choice; invalid: string[] } {
   const exclude = parseExcludeRules(settings.exclude);
+  const include = parseExcludeRules(settings.include);
   const choice = choose(files, {
     ticks: settings.ticks,
     exclude,
+    include,
     properties: parsePropertyRules(settings.properties),
     only: parsePropertyRules(settings.only),
   });
-  const invalid = [...invalidPropertyLines(settings.properties), ...invalidPropertyLines(settings.only)].map((line) => `"${line}" is not a property: write it as key: value.`);
-  if (exclude.hasInvalid) {
-    invalid.unshift("A pattern is not a valid regular expression.");
-  }
+  const invalid = [
+    ...[...exclude.invalid, ...include.invalid].map((pattern) => `The pattern "${pattern}" is not a valid regular expression.`),
+    ...propertyProblems(settings.properties),
+    ...propertyProblems(settings.only),
+  ];
   if (settings.extra.trim() !== "") {
     // What a build writes is not among the files, so a site of an earlier build cannot be named
     const kinds = new Map<string, KindOfPath>(files.map((file) => [file.path, file.isNote ? "note" : "file"]));

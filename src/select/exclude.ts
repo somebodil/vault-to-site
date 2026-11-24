@@ -1,9 +1,14 @@
-/** The patterns of an exclude input. */
+/**
+ * The patterns of an input of paths: the one that leaves paths out
+ * (`exclude`), and the one that takes in only the paths it names (`include`).
+ */
 export interface ExcludeRules {
   /** The patterns that could be compiled. They ignore case. */
   patterns: RegExp[];
   /** True if a pattern is not a valid regular expression */
   hasInvalid: boolean;
+  /** The patterns that are not a valid regular expression, as they were written */
+  invalid: string[];
 }
 
 /**
@@ -53,16 +58,26 @@ function isQuantifierComma(before: string, input: string, at: number): boolean {
   return /\{\d+$/.test(before) && /^\d*\}/.test(input.slice(at + 1));
 }
 
-/** Compiles an exclude input. Invalid patterns are left out and reported. */
+/** Compiles an input of paths. Invalid patterns are left out and reported. */
 export function parseExcludeRules(input: string): ExcludeRules {
-  const rules: ExcludeRules = { patterns: [], hasInvalid: false };
+  const rules: ExcludeRules = { patterns: [], hasInvalid: false, invalid: [] };
   for (const pattern of splitPatterns(input)) {
     try {
       // The same letters can be written in two ways, as one sign or as its parts: both sides are compared in one form
       rules.patterns.push(new RegExp(pattern.normalize("NFC"), "i"));
     } catch {
       rules.hasInvalid = true;
+      rules.invalid.push(pattern);
     }
   }
   return rules;
+}
+
+/** Answers for many paths whether one of the patterns matches */
+export function pathMatcher(rules: ExcludeRules): (path: string) => boolean {
+  // The same letters can be stored as one sign or as its parts: a path is compared in the form the patterns have
+  return (path) => {
+    const normal = path.normalize("NFC");
+    return rules.patterns.some((pattern) => pattern.test(normal));
+  };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseExcludeRules, splitPatterns } from "./exclude.ts";
+import { parseExcludeRules, pathMatcher, splitPatterns } from "./exclude.ts";
 
 describe("splitPatterns", () => {
   const cases: [input: string, expected: string[]][] = [
@@ -28,7 +28,7 @@ describe("parseExcludeRules", () => {
     parseExcludeRules(input).patterns.some((pattern) => pattern.test(path));
 
   it("has no patterns for an empty input", () => {
-    assert.deepEqual(parseExcludeRules("  "), { patterns: [], hasInvalid: false });
+    assert.deepEqual(parseExcludeRules("  "), { patterns: [], hasInvalid: false, invalid: [] });
   });
 
   it("matches a path with any of the patterns, ignoring case", () => {
@@ -47,6 +47,28 @@ describe("parseExcludeRules", () => {
       rules.patterns.map((pattern) => pattern.source),
       ["^a\\/"],
     );
+  });
+
+  it("names the patterns that are not valid, as they were written", () => {
+    assert.deepEqual(parseExcludeRules("*.png, ^a/, +x").invalid, ["*.png", "+x"]);
+    assert.deepEqual(parseExcludeRules("^a/").invalid, []);
+  });
+});
+
+describe("pathMatcher", () => {
+  it("says whether one of the patterns matches a path", () => {
+    const matches = pathMatcher(parseExcludeRules("^Guide/, ^Notes/20\\d\\d-"));
+    assert.equal(matches("Guide/Setup.md"), true);
+    assert.equal(matches("notes/2026-01 Plan.md"), true);
+    assert.equal(matches("Notes/Plan.md"), false);
+  });
+
+  it("matches nothing without a pattern", () => {
+    assert.equal(pathMatcher(parseExcludeRules(""))("a.md"), false);
+  });
+
+  it("matches a path whose letters are stored as their parts", () => {
+    assert.equal(pathMatcher(parseExcludeRules("^공개/"))("공개/메모.md".normalize("NFD")), true);
   });
 });
 

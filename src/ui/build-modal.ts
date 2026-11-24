@@ -3,7 +3,7 @@ import { planSite, readVault } from "../build/plan.ts";
 import { BuildStopped, buildSite } from "../build/site.ts";
 import { signatureOf, type Choice, type VaultFile } from "../select/choose.ts";
 import { parseExcludeRules } from "../select/exclude.ts";
-import { invalidPropertyLines } from "../select/properties.ts";
+import { propertyProblems } from "../select/properties.ts";
 import { missingLeftOut, parentOf, setTick, ticker } from "../select/ticks.ts";
 import { placeOf, type Settings } from "../settings.ts";
 
@@ -89,6 +89,7 @@ export class BuildModal extends Modal {
       const { choice, invalid } = planSite(this.app, this.settings, files);
       keptOut = new Map<string, string>([
         ...choice.unmarked.map((path): [string, string] => [path, "not marked"]),
+        ...choice.unnamed.map((path): [string, string] => [path, "not named"]),
         ...choice.unread.map((x): [string, string] => [x.path, "not read"]),
         ...choice.byPattern.map((path): [string, string] => [path, "pattern"]),
         ...choice.byProperty.map((x): [string, string] => [x.path, `${x.rule.key}: ${x.rule.value}`]),
@@ -229,12 +230,14 @@ export class BuildModal extends Modal {
 
     new Setting(contentEl)
       .setName("Leave out by property")
-      .setDesc("One property a line, as key: value. A note that has one of them stays out, ticked or not. A key alone, as draft:, is every note with that property.")
+      .setDesc(
+        "One property a line, as key: value. A note that has one of them stays out, ticked or not. A key alone, as draft:, is every note with that property. A value between slashes, as type: /^(private|meta)$/, is a regular expression.",
+      )
       .addTextArea((area) => {
         area.setValue(this.settings.properties);
         area.inputEl.rows = 3;
         const mark = (): void => {
-          area.inputEl.toggleClass("vault-to-site-invalid", invalidPropertyLines(area.getValue()).length > 0);
+          area.inputEl.toggleClass("vault-to-site-invalid", propertyProblems(area.getValue()).length > 0);
         };
         mark();
         area.onChange((value) => {
@@ -247,13 +250,33 @@ export class BuildModal extends Modal {
       });
 
     new Setting(contentEl)
+      .setName("Take in only by path")
+      .setDesc("Regular expressions, separated by commas. When there is one, a ticked note goes in only when one of them matches its path. Empty for every ticked note.")
+      .addText((text) => {
+        text.setPlaceholder("^Guide/, ^Notes/20\\d\\d-").setValue(this.settings.include);
+        const mark = (): void => {
+          text.inputEl.toggleClass("vault-to-site-invalid", parseExcludeRules(text.getValue()).hasInvalid);
+        };
+        mark();
+        text.onChange((value) => {
+          this.change((settings) => {
+            settings.include = value;
+          });
+          mark();
+          afterTyping();
+        });
+      });
+
+    new Setting(contentEl)
       .setName("Take in only by property")
-      .setDesc("One property a line, as publish: true. When there is one, a ticked note goes in only with such a property. Empty for every ticked note.")
+      .setDesc(
+        "One property a line, as publish: true. When there is one, a ticked note goes in only with such a property. Empty for every ticked note. A value between slashes, as tags: /^public/, is a regular expression.",
+      )
       .addTextArea((area) => {
         area.setValue(this.settings.only);
         area.inputEl.rows = 2;
         const mark = (): void => {
-          area.inputEl.toggleClass("vault-to-site-invalid", invalidPropertyLines(area.getValue()).length > 0);
+          area.inputEl.toggleClass("vault-to-site-invalid", propertyProblems(area.getValue()).length > 0);
         };
         mark();
         area.onChange((value) => {
@@ -396,6 +419,9 @@ export class BuildModal extends Modal {
     }
     if (choice.byPattern.length > 0) {
       list("Kept out by a pattern", choice.byPattern, false);
+    }
+    if (choice.unnamed.length > 0) {
+      list("Not named for the site", choice.unnamed, false, "Only a note whose path a pattern under Take in only by path matches goes in.");
     }
     if (choice.unmarked.length > 0) {
       list("Not marked for the site", choice.unmarked, false, "Only a note with one of the properties under Take in only by property goes in.");

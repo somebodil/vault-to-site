@@ -32,6 +32,12 @@ describe("readSettings", () => {
     assert.equal(readSettings({}).format, "zip");
   });
 
+  it("reads the patterns to take in by, and has none to begin with", () => {
+    assert.equal(readSettings({ include: "^Guide/" }).include, "^Guide/");
+    assert.equal(readSettings({ include: 5 }).include, "");
+    assert.equal(DEFAULT_SETTINGS.include, "");
+  });
+
   it("keeps an empty list of property rules: no rule is a choice", () => {
     assert.equal(readSettings({ properties: "" }).properties, "");
   });

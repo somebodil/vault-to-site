@@ -12,7 +12,12 @@ export interface Settings {
   ticks: Ticks;
   /** Regular expressions, separated by commas: a path one of them matches is left out */
   exclude: string;
-  /** `key: value` a line: a note with one of these properties is left out */
+  /**
+   * Regular expressions, separated by commas: when there is one, only a
+   * note whose path one of them matches goes in. Empty for every ticked note.
+   */
+  include: string;
+  /** `key: value` a line: a note with one of these properties is left out. A value between slashes is a regular expression. */
   properties: string;
   /**
    * `key: value` a line: when there is one, only a note with one of these
@@ -46,6 +51,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   ticks: NO_TICKS,
   exclude: "",
+  include: "",
   properties: DEFAULT_PROPERTY_RULES,
   only: "",
   extra: "",
@@ -105,7 +111,7 @@ export function followRename(settings: Settings, from: string, to: string, isOnt
 /** Reads what was saved, and takes the default for what is missing or of the wrong kind */
 export function readSettings(saved: unknown): Settings {
   const data = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
-  const text = (key: "exclude" | "properties" | "only" | "extra" | "reviewed"): string => {
+  const text = (key: "exclude" | "include" | "properties" | "only" | "extra" | "reviewed"): string => {
     const value = data[key];
     return typeof value === "string" ? value : DEFAULT_SETTINGS[key];
   };
@@ -118,6 +124,7 @@ export function readSettings(saved: unknown): Settings {
   return {
     ticks: { on: paths(ticks.on), off: paths(ticks.off) },
     exclude: text("exclude"),
+    include: text("include"),
     properties: text("properties"),
     only: text("only"),
     extra: text("extra"),

@@ -3,7 +3,7 @@
 An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into a website to read them: one zip archive, with an `index.html` in it that you open with a browser. The site looks like your vault, because Obsidian itself draws every note for it, and it cannot be edited.
 
 - **It opens from a file.** Unpack the archive and double-click `index.html`: no server, no network. The same files also work on a web server or on GitHub Pages as they are.
-- **You choose what goes in.** Tick folders and notes in a tree, leave paths out with regular expressions, and leave notes out by a property. Pictures and other files are not chosen: they come with the notes that use them.
+- **You choose what goes in.** Tick folders and notes in a tree, leave notes out or take in only some of them by their path or by a property, with regular expressions for both. Pictures and other files are not chosen: they come with the notes that use them.
 - **Nothing gets in unseen.** Before a build you look over the list of every note that goes in, and of what was kept out and why.
 - **It runs on a phone.** A build is one file that you can share from there.
 
@@ -45,7 +45,7 @@ The dialog is where you look over what goes in. A build without it is there for 
   }
   ```
 
-  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
+  The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `include`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
 
 ## What the site has
 
@@ -63,7 +63,7 @@ On a narrow window, as on a phone, the two sides open over the note.
 
 ## Choosing what goes in
 
-Three things decide, in this order. A later one always wins over an earlier one.
+These decide, in this order. A rule always wins over a tick, and a rule that leaves out wins over one that takes in.
 
 1. **The ticks.** A ticked folder takes in everything inside it, also what you add later. Take the tick off a folder or a note inside it to leave that out. What is left out stays left out when you rename or move it in Obsidian. A rename that Obsidian cannot see, as one that a sync brings, is not followed: the dialog then names the path that is gone, because what it was is ticked again under its new name.
 2. **Leave out by path.** JavaScript regular expressions, separated by commas. A path that one of them matches stays out. Upper and lower case are the same.
@@ -78,12 +78,25 @@ Three things decide, in this order. A later one always wins over an earlier one.
 
 3. **Leave out by property.** One property a line, as `key: value`. A note that has one of them stays out. To begin with these are `type: private` and `publish: false`. A key alone, as `draft:`, is every note that has that property, whatever it holds.
 
+   **A value between slashes is a regular expression,** as in the rule for paths: the note stays out when the expression finds something in what the property holds. Upper and lower case are the same. Of a property that is a list, each item is tried by itself.
+
+   | Input                        | What stays out                                  |
+   | ---------------------------- | ----------------------------------------------- |
+   | `type: /^(private\|meta)$/` | A note whose `type` is `private` or `meta`      |
+   | `tags: /^draft/`             | A note with a tag that starts with `draft`      |
+   | `status: /wip/`              | A note whose `status` has `wip` somewhere in it |
+
+   A value with one slash, or with nothing between two, is plain text. To leave out by a value that itself starts and ends with a slash, write it as an expression: `/^\/a\/$/`.
+
    A pattern that is not a regular expression, or a line that is not a property, keeps nothing out. The dialog says which one it is, and no site is built until it is corrected or taken out.
-4. **Take in only by property.** One property a line, as `publish: true`. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that is built with nobody looking the list over: a note does not go in by being new.
+4. **Take in only by path.** Regular expressions, separated by commas, written as under **Leave out by path**. When there is one, a ticked note goes in only when one of them matches its path; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. With the whole vault ticked, `^Guide/, ^Notes/20\d\d-` takes of it the folder `Guide` and the notes of `Notes` that start with a year.
+
+   Only notes are asked for a pattern. A picture or another file goes in with the note that uses it, wherever it lies.
+5. **Take in only by property.** One property a line, as `publish: true`, with a value between slashes for a regular expression as above. When there is one, a ticked note goes in only with such a property; a rule that keeps a note out still wins. Empty to begin with: then every ticked note goes in. This is the rule for a site that is built with nobody looking the list over: a note does not go in by being new.
 
    **A note whose properties are not known stays out as well:** one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
-5. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a path where the site itself writes, as `index.html`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
+6. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a path where the site itself writes, as `index.html`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
 
 **Ticks are for notes.** A picture or another file that is not a note is never chosen by a tick, and it is not in the tree. It goes into the site when a note of the site uses it, and only then. So ticking the whole vault does not put the pictures of a private note into the site, nor a file that lies in a folder of private notes and that no note links to. To have a file in the site, link to it or embed it in a note of the site.
 
