@@ -1,7 +1,7 @@
 import { normalizePath, Plugin, TFolder } from "obsidian";
 import { isAtOrUnder } from "./select/ticks.ts";
 import { followDelete, followRename, readSettings, type Settings, DEFAULT_SETTINGS } from "./settings.ts";
-import { buildAgain } from "./build/again.ts";
+import { buildAgain, buildForProgram } from "./build/again.ts";
 import { BuildModal } from "./ui/build-modal.ts";
 
 const ICON = "book-open-check";
@@ -27,7 +27,14 @@ export default class VaultToSitePlugin extends Plugin {
       });
       this.dialog.open();
     };
-    this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: open });
+    // A program that runs the command has nobody to look at a dialog: the site is built at once, with the settings the run is given
+    const build = (): void =>
+      void buildForProgram(this.app, this.config, this.manifest.version, this.stop).then((built) => {
+        if (!built) {
+          open();
+        }
+      });
+    this.addCommand({ id: "build", name: "Build a site", icon: ICON, callback: build });
     this.addCommand({
       id: "build-again",
       name: "Build again without the dialog",

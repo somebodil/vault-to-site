@@ -30,20 +30,14 @@ interface Runner {
  * - **A program**, as on a server after every push, has nobody to look. It
  *   says in its settings what goes in, and should say it by a mark on each
  *   note (`only`, as `publish: true`), so that a note does not go in by
- *   being new. What went in is given back, for the record of the run.
+ *   being new. Told nothing, the whole vault goes in. What went in is given
+ *   back, for the record of the run.
  *
  * @param claim called with the place that is written to: see `buildSite`
  * @param stop held by the plugin, which sets it when it is turned off: there is no dialog here to stop the build from
  */
 export async function buildAgain(app: App, saved: Settings, version: string, claim: (place: string) => Promise<void>, stop: { now: boolean }): Promise<void> {
-  const runner = (window as unknown as { obsidianCmdRunner?: Runner }).obsidianCmdRunner;
-  if (runner !== undefined) {
-    runner.claim();
-    try {
-      runner.done(await unattended(app, saved, version, runner, stop));
-    } catch (error) {
-      runner.fail(error);
-    }
+  if (await buildForProgram(app, saved, version, stop)) {
     return;
   }
 
@@ -72,6 +66,27 @@ export async function buildAgain(app: App, saved: Settings, version: string, cla
 }
 
 /**
+ * Builds the site for a program that runs Obsidian without its window, and
+ * tells it how the build went. Both commands come here first: with nobody
+ * there, a dialog would wait for a click that never comes.
+ *
+ * @returns false when a person runs the command: nothing was done then
+ */
+export async function buildForProgram(app: App, saved: Settings, version: string, stop: { now: boolean }): Promise<boolean> {
+  const runner = (window as unknown as { obsidianCmdRunner?: Runner }).obsidianCmdRunner;
+  if (runner === undefined) {
+    return false;
+  }
+  runner.claim();
+  try {
+    runner.done(await unattended(app, saved, version, runner, stop));
+  } catch (error) {
+    runner.fail(error);
+  }
+  return true;
+}
+
+/**
  * How wide a note is taken to be when nobody has Obsidian open at a size of
  * their own. A program runs it in a window of whatever size, at times with
  * no screen at all, and what is drawn to fit the width of a note, as a
@@ -95,9 +110,11 @@ async function unattended(app: App, saved: Settings, version: string, runner: Ru
     throw new Error(`${problems.join(" ")} A site is not built with settings that cannot be read.`);
   }
   // Laid over what is saved in the vault
-  const settings = given === undefined ? saved : readSettings({ ...saved, ...given });
-  if (settings.ticks.on.length === 0) {
-    throw new Error('Nothing is ticked, so nothing would go into the site. Say what goes in: {"ticks": {"on": [""]}} is the whole vault, and "only": "publish: true" takes of it the notes that are marked.');
+  const told = given === undefined ? saved : readSettings({ ...saved, ...given });
+  // Told nothing on what goes in, the whole vault does: a run with no settings at all builds a site, as the settings are to begin with
+  const settings = told.ticks.on.length === 0 ? { ...told, ticks: { on: [""], off: told.ticks.off } } : told;
+  if (settings !== told) {
+    runner.log('Nothing is ticked: the whole vault goes in. Settings say otherwise, as {"ticks": {"on": ["Folder"]}} or "only": "publish: true".');
   }
   const { choice, invalid } = planSite(app, settings);
   if (invalid.length > 0) {

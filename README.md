@@ -41,10 +41,16 @@ If you sync the vault, keep it out of the sync: with git, add `vault-to-site.zip
 
 ## Building without the dialog
 
-The dialog is where you look over what goes in. A build without it is there for two cases, and in neither is that lost.
+The dialog is where you look over what goes in. A build without it is there for two cases.
 
 - **Again, as it was.** The command **Build again without the dialog** builds the site you looked over last. When other notes or files would go in now, it builds nothing and sends you to the dialog. Turning the plugin off stops such a build.
-- **By a program.** [obsidian-cmd-runner](https://github.com/somebodil/obsidian-cmd-runner) starts Obsidian without its window, on a build server after a push or from a script, and runs the same command there. Nobody looks then, so what goes in is said in a file, and should be said by a mark on each note:
+- **By a program.** [obsidian-cmd-runner](https://github.com/somebodil/obsidian-cmd-runner) starts Obsidian without its window, on a build server after a push or from a script, and runs the command **Build a site** there. Nobody looks then, so no dialog opens: the site is built at once.
+
+  ```sh
+  obsidian-cmd-runner --vault notes --plugin somebodil/vault-to-site --command vault-to-site:build
+  ```
+
+  Told nothing more, it goes by what the plugin has saved in the vault. Where nothing is ticked, the whole vault goes in, and where no place is named, the site is an archive `vault-to-site.zip` in the vault. What goes in is better said, and said by a mark on each note, so that a note does not go in by being new:
 
   ```json
   {
@@ -55,11 +61,11 @@ The dialog is where you look over what goes in. A build without it is there for 
   }
   ```
 
-  The command is given the file as `settings`. With the file as `site.json` in the vault:
+  The command is given these as `settings`. With the file as `site.json` in the vault:
 
   ```sh
   obsidian-cmd-runner --vault notes --plugin somebodil/vault-to-site \
-    --command vault-to-site:build-again --arg "settings=$(cat notes/site.json)"
+    --command vault-to-site:build --arg "settings=$(cat notes/site.json)"
   ```
 
   The file holds the settings of the dialog under the names `ticks` (`on` and `off`, paths from the root of the vault; `""` is the whole vault), `exclude`, `properties`, `include`, `only`, `extra`, `format` (`zip` or `folder`), `zip` and `folder`. They are laid over what the plugin has saved in the vault, and nothing of a run is saved. A name that is not one of these, or a value of the wrong kind, as a list where text is read, makes the run fail and is named: no setting is passed over. Because nothing is saved, a run knows the archive of the run before by what it holds and writes over it; any other file at its place is refused. A run is given `width` beside the settings (`--arg width=900`) to say how wide a note is taken to be, in pixels, for what is drawn to fit, as a diagram is: to begin with 1100, the width of a window on a computer. The run gives back which notes went in, how many were kept out by each rule, and what the look for names found. A note that could not be drawn makes the run fail.
