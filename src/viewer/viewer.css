@@ -6,7 +6,7 @@
 
 body.v2s {
   margin: 0;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -123,10 +123,38 @@ body.v2s {
   color: var(--text-muted, #777);
 }
 
-.v2s-pdf {
-  width: 100%;
-  height: 80vh;
+/* A PDF: a link that opens it, and the PDF in a frame below it (dress.ts). The box takes the height of what it holds. */
+.v2s .pdf-embed {
+  display: block;
+  height: auto;
+  max-height: none;
+  overflow: visible;
   border: 0;
+}
+
+.v2s-pdf-open {
+  margin-bottom: var(--size-4-2, 8px);
+}
+
+.v2s-pdf {
+  display: block;
+  width: 100%;
+  height: 80dvh;
+  border: 0;
+}
+
+/* A phone or a tablet: Safari there draws a PDF in a frame as its first page only, cut to the frame */
+@media (pointer: coarse) {
+  .v2s-pdf {
+    display: none;
+  }
+}
+
+/* Safari on a phone or a tablet zooms the page in to a box with smaller letters when it is touched */
+@media (pointer: coarse) {
+  .v2s-modal .prompt-input {
+    font-size: max(16px, 1em);
+  }
 }
 
 /* An embed that is not part of the site says so. A picture that is not simply is not there. */
@@ -216,7 +244,7 @@ video.v2s-left-out {
 
 .v2s-graph-modal {
   width: min(1100px, 94vw);
-  height: min(800px, 88vh);
+  height: min(800px, 88dvh);
   max-width: none;
   max-height: none;
   padding: 0;
@@ -256,7 +284,7 @@ video.v2s-left-out {
   position: fixed;
   z-index: 40;
   width: min(450px, 90vw);
-  max-height: min(400px, 60vh);
+  max-height: min(400px, 60dvh);
   overflow: hidden;
 }
 
@@ -267,7 +295,7 @@ video.v2s-left-out {
 }
 
 .v2s-popover .markdown-preview-view {
-  max-height: min(400px, 60vh);
+  max-height: min(400px, 60dvh);
   overflow-y: auto;
 }
 

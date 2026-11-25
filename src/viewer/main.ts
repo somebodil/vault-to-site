@@ -3,7 +3,7 @@ import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, missingParts, type Haystack } from "./find.ts";
 import { addFolding, foldCallout, openCallouts, unfoldFor } from "./fold.ts";
 import { graphView } from "./graph.ts";
-import { dressEmbeds, dressLists } from "./dress.ts";
+import { dressEmbeds, dressLists, dressPdfs } from "./dress.ts";
 import { copyText, fileView, findHeading, noteBlocks, noteOfAddress, propertiesView, sameAddress, titleOf } from "./note.ts";
 import { watchPreviews } from "./preview.ts";
 import { createSearch, type Found } from "./search.ts";
@@ -511,6 +511,7 @@ function start(index: SiteIndex): void {
     current = id;
     dressLists(sizer, triangle, canFold("lists"));
     dressEmbeds(sizer, icons["maximize-2"] ?? "");
+    dressPdfs(sizer);
     if (canFold("headings")) {
       addFolding(sizer, triangle);
     }
@@ -726,6 +727,7 @@ function start(index: SiteIndex): void {
     dress: (view) => {
       dressLists(view, triangle, false);
       dressEmbeds(view, icons["maximize-2"] ?? "");
+      dressPdfs(view);
     },
   });
 

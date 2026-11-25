@@ -12,7 +12,8 @@ const viewer = await esbuild.build({
   entryPoints: ["src/viewer/main.ts"],
   bundle: true,
   format: "iife",
-  target: "es2020",
+  // The browsers the site is made for (README, Browsers): what they all read is left as it is written
+  target: ["chrome123", "edge123", "safari18", "ios18"],
   minify: production,
   write: false,
   logLevel: "info",

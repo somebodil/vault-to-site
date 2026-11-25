@@ -118,7 +118,8 @@ export function fileView(asset: string, path: string): HTMLElement {
     return el("video", { attr: { src: asset, controls: "" } });
   }
   if (ending === "pdf") {
-    return el("iframe", { cls: "v2s-pdf", attr: { src: asset, title: titleOf(path) } });
+    // As a PDF embedded in a note: the page puts the link that opens it above the frame (dressPdfs)
+    return el("div", { cls: "pdf-embed" }, [el("iframe", { cls: "v2s-pdf", attr: { src: asset, title: titleOf(path) } })]);
   }
   return el("p", {}, [el("a", { cls: "external-link", text: "Open " + titleOf(path), attr: { href: asset, target: "_blank", rel: "noopener" } })]);
 }

@@ -33,6 +33,24 @@ export function dressLists(root: ParentNode, triangle: string, canFold: boolean)
 }
 
 /**
+ * Puts a link that opens the PDF itself above every PDF shown in a frame:
+ * the viewer of the browser then shows all of it in a page of its own. On a
+ * phone or a tablet the link stands alone (viewer.css): Safari there draws a
+ * PDF in a frame as its first page only, cut to the frame.
+ */
+export function dressPdfs(root: ParentNode): void {
+  for (const frame of Array.from(root.querySelectorAll("iframe.v2s-pdf"))) {
+    const src = frame.getAttribute("src");
+    if (src === null || frame.previousElementSibling?.classList.contains("v2s-pdf-open") === true) {
+      continue;
+    }
+    const name = frame.getAttribute("title") ?? "PDF";
+    const link = el("a", { cls: "external-link", text: "Open " + name, attr: { href: src, target: "_blank", rel: "noopener" } });
+    frame.before(el("div", { cls: "v2s-pdf-open" }, [link]));
+  }
+}
+
+/**
  * Gives every embedded note the corner that opens it, as the reading view of
  * Obsidian does. A press on it is heard by the page.
  */

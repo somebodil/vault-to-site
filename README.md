@@ -90,7 +90,18 @@ The file holds the settings of the dialog under the names `ticks`, `exclude`, `p
 - **Dark and light**, as Obsidian was when the site was built, with a button to change it
 - **An address for every note**, so the back and forward buttons of the browser work, a note that you come back to is where you left it, and a note or a heading can be bookmarked
 
-On a narrow window, as on a phone, the two sides lie under the note, and the note moves aside for them: by their buttons, or with a finger. A finger that moves the note to the right uncovers the files, one that moves it to the left the outline, and the other way covers them again. The note follows the finger, and where it is let go decides: past the middle, or flicked, and the side stays open. A wide table or a block of code is still moved sideways inside itself. Moving the note with a finger is made for Chrome and the browsers built on it, as Edge.
+On a narrow window, as on a phone, the two sides lie under the note, and the note moves aside for them: by their buttons, or with a finger. A finger that moves the note to the right uncovers the files, one that moves it to the left the outline, and the other way covers them again. The note follows the finger, and where it is let go decides: past the middle, or flicked, and the side stays open. A wide table or a block of code is still moved sideways inside itself. In Safari on an iPhone, a finger that starts at the very edge of the screen is Safari's: it goes back a page.
+
+## Browsers
+
+The site is made for these browsers, and tried in them:
+
+- **Chrome, Edge and the other browsers built on Chromium,** from version 123, on a computer and on a phone
+- **Safari,** from version 18, on a Mac, an iPhone and an iPad
+
+The style sheets copied from Obsidian set these versions: their colors are written with `light-dark()`, which Chrome has from version 123, and they blur with `backdrop-filter`, which Safari reads without a prefix from version 18. Other browsers, as Firefox, may show the site as well, but it is not made for them.
+
+**A PDF on a phone or a tablet** is a link that opens it in the viewer of the browser, which shows all of it. Their browsers draw a PDF inside a page badly: Safari on an iPhone draws only its first page, cut to the size of its frame. On a computer the PDF is also shown in the page, under the link.
 
 ## Choosing what goes in
 
@@ -127,7 +138,7 @@ These decide, in this order. A rule always wins over a tick, and a rule that lea
 
 6. **Put a file at a path of its own.** One file a line, as `Resume.pdf: Papers/Resume.pdf`: the file of the vault after the colon goes into the site under the path before it, here at its top, where its address stays the same from build to build. Such a file is named one by one, by its whole path, and goes in whatever the ticks and the other rules say, also from a folder that a pattern keeps out. A note cannot be named: a note goes in only as a note. Nor can a canvas or a base, a path where the site itself writes, as `index.html`, or two paths of which one lies inside the other, as `a` and `a/b.pdf`. The step **Look over** lists these files, and a line that names no file of the vault stops the build.
 
-   In the site, such a file is in the list of files on the left, under the path before the colon, and opens there as a file that a note uses does: a PDF in the middle of the page. The path in the vault does not show. A note of the site that links to or embeds the same file leads to that path, and the file is in the site once.
+   In the site, such a file is in the list of files on the left, under the path before the colon, and opens there as a file that a note uses does: a PDF in the middle of the page, under a link that opens it alone. The path in the vault does not show. A note of the site that links to or embeds the same file leads to that path, and the file is in the site once.
 
 **A note whose properties are not known always stays out,** whichever rules are set: one that Obsidian has not read yet, as right after it starts, and one whose properties have a mistake in them, so that Obsidian shows them as text. A rule may be meant for such a note, and it cannot be checked. The step **Look over** lists these notes.
 
@@ -179,12 +190,13 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **Building on a phone** ran in Obsidian 1.15.1 on an emulated Android phone: a vault of difficult cases (private notes, embeds inside embeds, properties with a mistake, a canvas, a base, notes with scripts, HTML and odd names), 168 real notes with 70 pictures, 1000 generated notes in 6 to 8 seconds, and a site of 51 MB, whose archive is written in pieces. The same notes built twice gave the same files, byte for byte.
 - **The look** was compared with the reading view of Obsidian on the computer, block by block: the size of each block, the styles the browser works out for it, and its picture. First with a note made for it, then with 16 real notes under a font that a plugin loads and without a line of readable length: all 363 blocks are the same. Headings, text, lists, tasks, quotes, callouts, code, tables, formulas, six kinds of diagram, pictures, embedded notes and the properties are the same. What differs is what a reader cannot use: the buttons that remove a value or add a property, and a link that leads out of the site, which is shown as one that leads nowhere.
 - **Renames, stops and refusals** were done in Obsidian on the phone: a folder with left-out notes renamed, a build stopped half way, a vault changed between the list and the build, a file of the user at the place of the archive.
-- **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
+- **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. From 0.1.8 on, it is tried in Chrome and WebKit as a computer, a phone (Pixel 7, iPhone 15) and a tablet (iPad): notes, search and a PDF, with no error of the script. A finger that moves the note aside was tried in Chrome only: WebKit on Linux lets no script make a touch.
+- **A PDF in a frame on a real iPhone** showed in Safari as its first page, cut to the frame. WebKit on Linux, where the site is tried, has no viewer of PDFs, so a phone gets the link alone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
 - **In Chrome on the emulated phone** the site was loaded from a web server and read by script: it comes up in the layout for a phone. Touching it there was not tried, because the emulator stopped when a window of Chrome was touched.
 - **A file at a path of its own** was built through the runner in Obsidian 1.15.1 on a Mac: a PDF from a folder that a pattern keeps out, put at the top of a site of 149 real notes, and served from there by a web server.
 - **Taking in by path, and a value of a property as a regular expression**, were built through the runner in Obsidian 1.15.1 on a Mac, from a copy of a real vault of 244 notes. A pattern for paths took in the 41 notes it names with the pictures they use, and a pattern that leaves out won over it. A value between slashes gave the same site as the plain values it stands for, took a value in capital letters, and tried each item of a list. A pattern that is not valid stopped the run with its name, and nothing was written. The dialog was driven by script: it showed the count, the mark in the tree, the list in the step to look over, and it did not go on with a pattern that is not valid.
 - **Building on Linux** ran through the runner in Obsidian 1.15.1 on arm64, with no screen: 142 real notes as a folder, and small vaults made for what a build refuses: an archive and a folder that are not the plugin's, a file where an extra file is to go, settings of a run that cannot be read.
-- **Not tried:** building in Obsidian on Windows, on an iPhone or an iPad, the output of plugins of others as Dataview, and using the site by touch in the browser of a real phone.
+- **Not tried:** building in Obsidian on Windows, on an iPhone or an iPad, the output of plugins of others as Dataview, and moving the note aside with a finger on a real phone.
 
 ## Development
 
