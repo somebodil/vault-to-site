@@ -1,7 +1,7 @@
 {
   "id": "vault-to-site",
   "name": "vault-to-site",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minAppVersion": "1.12.3",
   "description": "Build the notes you choose into a read-only website that looks like your vault and opens from a file.",
   "author": "somebodil",

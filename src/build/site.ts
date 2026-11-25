@@ -3,7 +3,6 @@ import { signatureOf } from "../select/choose.ts";
 import { placeOf, type Settings } from "../settings.ts";
 import {
   ICON_NAMES,
-  type FileEntry,
   type NoteEntry,
   noteAddress,
   type NotePage,
@@ -12,7 +11,7 @@ import {
   type SearchPart,
   type SiteIndex,
 } from "../site-format.ts";
-import { assignIds, extensionOf } from "./ids.ts";
+import { layOutFiles } from "./files.ts";
 import { mentionFinder, type Mention } from "./mentions.ts";
 import { FolderOutput, isSiteArchive, MARKER, markerText, type SiteOutput, ZipOutput } from "./output.ts";
 import { planSite } from "./plan.ts";
@@ -130,16 +129,11 @@ async function build(
   if (settings.format === "zip" && choice.notes.length + choice.files.length > MOST_FILES_IN_ZIP) {
     throw new Error("The site has too many files for one zip archive. Build it as a folder.");
   }
-  const ids = assignIds([...choice.notes, ...choice.files]);
-  const idOf = (path: string): string => ids.get(path) ?? "";
+  const layout = layOutFiles(choice.notes, choice.files, choice.extra);
+  const idOf = (path: string): string => layout.ids.get(path) ?? "";
 
   const noteIds = new Map(choice.notes.map((path) => [path, idOf(path)]));
-  const assets = new Map(
-    choice.files.map((path) => {
-      const extension = extensionOf(path);
-      return [path, "assets/" + idOf(path) + (extension === "" ? "" : "." + extension)];
-    }),
-  );
+  const assets = layout.addresses;
 
   const place = placeOf(settings, normalizePath);
   const extraPaths = choice.extra.map((file) => file.to);
@@ -149,7 +143,7 @@ async function build(
   const output: SiteOutput = settings.format === "zip" ? new ZipOutput(app.vault.adapter, place, isOwnArchive) : new FolderOutput(app.vault.adapter, place, extraPaths);
   await output.prepare();
 
-  const total = choice.notes.length + choice.files.length + choice.extra.length + 1;
+  const total = choice.notes.length + layout.copies.length + choice.extra.length + 1;
   let done = 0;
   const check = (): void => {
     if (stop.now) {
@@ -299,20 +293,13 @@ async function build(
       stage.remove();
     }
 
-    const files: Record<string, FileEntry> = {};
-    for (const path of choice.files) {
-      const asset = assets.get(path);
-      if (asset !== undefined) {
-        files[idOf(path)] = { p: path, a: asset };
-      }
-    }
-    await severalAtATime(choice.files.length, output.copiesAtATime, async (at) => {
+    // A file at a path of its own that the notes use as well is copied once, below, to that path
+    await severalAtATime(layout.copies.length, output.copiesAtATime, async (at) => {
       check();
-      const path = choice.files[at] ?? "";
-      const asset = assets.get(path);
-      progress(done, total, path);
-      if (asset !== undefined) {
-        await output.copy(path, asset);
+      const [from, to] = layout.copies[at] ?? ["", ""];
+      progress(done, total, from);
+      if (from !== "") {
+        await output.copy(from, to);
       }
       done++;
     });
@@ -340,7 +327,7 @@ async function build(
     const index: SiteIndex = {
       name: app.vault.getName(),
       notes,
-      files,
+      files: layout.entries,
       searchParts: partCount,
       theme: doc.body.classList.contains("theme-dark") ? "dark" : "light",
       inlineTitle: doc.body.classList.contains("show-inline-title"),
@@ -362,7 +349,7 @@ async function build(
 
     return {
       notes: choice.notes.length,
-      files: choice.files.length + choice.extra.length,
+      files: layout.copies.length + choice.extra.length,
       place: written.place,
       bytes: written.bytes,
       millis: Date.now() - start,

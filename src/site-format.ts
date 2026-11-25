@@ -29,10 +29,20 @@ export interface NoteEntry {
 
 /** A file that is not a note */
 export interface FileEntry {
-  /** Path in the vault */
+  /** Where the list of files shows it: its path in the vault, or for a file at a path of its own, that path */
   p: string;
-  /** Where it is in the site, from index.html */
+  /** Where it is in the site, from index.html, as a path: `fileAddress` makes it an address */
   a: string;
+}
+
+/**
+ * The address of a file of the site, from index.html: its path, with each
+ * part of it made fit for an address. A file at a path of its own may have
+ * a name with a space, a `#` or a `%` in it, which an address would read as
+ * something else.
+ */
+export function fileAddress(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 export interface SiteIndex {

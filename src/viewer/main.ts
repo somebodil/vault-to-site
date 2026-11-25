@@ -1,4 +1,4 @@
-import { readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
+import { fileAddress, readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
 import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
 import { haystack, missingParts, type Haystack } from "./find.ts";
 import { addFolding, foldCallout, openCallouts, unfoldFor } from "./fold.ts";
@@ -482,7 +482,7 @@ function start(index: SiteIndex): void {
     }
     if (note === undefined && file !== undefined) {
       putName();
-      parts.push(fileView(file.a, path));
+      parts.push(fileView(fileAddress(file.a), path));
     } else {
       const page = await loadNote(id);
       if (turn !== drawing) {
