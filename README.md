@@ -13,11 +13,21 @@ An [Obsidian](https://obsidian.md) plugin that builds the notes you choose into 
 
 ## Install
 
-The plugin is not in the list of community plugins of Obsidian yet. Until it is, put it into a vault by hand:
+vault-to-site is in the community plugin directory of Obsidian.
+
+1. In Obsidian, go to **Settings → Community plugins**. If community plugins are still turned off, turn them on.
+2. Select **Browse** and search for **vault-to-site**.
+3. Select **Install**, and then **Enable**.
+
+Obsidian tells you when there is a newer version, and installs it for you.
+
+### By hand
 
 1. From the [latest release](https://github.com/somebodil/vault-to-site/releases/latest), take `main.js`, `manifest.json` and `styles.css`.
 2. Put them into a folder `.obsidian/plugins/vault-to-site/` in your vault. `.obsidian` is a hidden folder: a file manager shows it only when it is told to show hidden files. On a phone, a file manager or the app you sync with can do this.
 3. In Obsidian, under **Settings → Community plugins**, turn Restricted mode off if it is on, then turn **vault-to-site** on. Start Obsidian again if it is not listed.
+
+To update, replace the three files with the ones from a newer release and start Obsidian again.
 
 The files of a release are built by GitHub from the commit of its tag, and carry a signed statement of that: `gh attestation verify main.js --repo somebodil/vault-to-site` checks it.
 
