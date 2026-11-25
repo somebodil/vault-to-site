@@ -80,6 +80,7 @@ The file holds the settings of the dialog under the names `ticks`, `exclude`, `p
 ## What the site has
 
 - **The files** on the left, in folders, as in the file explorer
+- **The note it opens with**: a note called `index` at the top of the site, as a web server opens `index.html`. Without one, the first note at the top of the list, in the order of its names.
 - **The note** in the middle, as Obsidian draws it in reading view: callouts, tables, code, formulas, diagrams, embeds, footnotes, properties
 - **The outline, the backlinks and the graph** of the note on the right: the note with the notes it links to and the notes that link to it
 - **The graph of the whole site**, from a button above the note. It can be moved and sized; the note under the pointer shows its name and its links, and a click opens it.

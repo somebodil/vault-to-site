@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SiteIndex } from "../site-format.ts";
-import { buildTree, firstNote } from "./tree.ts";
+import { buildTree, firstNote, homeNote } from "./tree.ts";
 
 function index(notes: Record<string, string>, files: Record<string, string> = {}): SiteIndex {
   return {
@@ -72,5 +72,27 @@ describe("firstNote", () => {
   it("is null for a site without notes", () => {
     const site = index({}, { g: "a.png" });
     assert.equal(firstNote(buildTree(site), site), null);
+  });
+});
+
+describe("homeNote", () => {
+  it("is the note index at the top, before notes whose names come first", () => {
+    const site = index({ a: "CLIP.md", b: "index.md", c: "alpha.md" });
+    assert.equal(homeNote(buildTree(site), site), "b");
+  });
+
+  it("takes the name without regard to case", () => {
+    const site = index({ a: "About.md", b: "Index.md" });
+    assert.equal(homeNote(buildTree(site), site), "b");
+  });
+
+  it("is the first note when the top has no note index: one in a folder or a file called so does not count", () => {
+    const site = index({ a: "Guide/index.md", b: "Zeta.md", c: "alpha.md" }, { g: "index.html" });
+    assert.equal(homeNote(buildTree(site), site), "c");
+  });
+
+  it("is null for a site without notes", () => {
+    const site = index({}, { g: "index.pdf" });
+    assert.equal(homeNote(buildTree(site), site), null);
   });
 });

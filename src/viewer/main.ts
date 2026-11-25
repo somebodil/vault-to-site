@@ -8,7 +8,7 @@ import { copyText, fileView, findHeading, noteBlocks, noteOfAddress, propertiesV
 import { watchPreviews } from "./preview.ts";
 import { createSearch, type Found } from "./search.ts";
 import { watchSwipe, type Side } from "./swipe.ts";
-import { buildTree, firstNote, treeView } from "./tree.ts";
+import { buildTree, homeNote, treeView } from "./tree.ts";
 
 /**
  * The script of the site. It draws a frame like that of Obsidian, with the
@@ -109,7 +109,7 @@ function start(index: SiteIndex): void {
   // ---- What is worked out once for the whole site ----
   const root = buildTree(index);
   /** The note the site opens with when the address names none */
-  const firstId = firstNote(root, index) ?? "";
+  const firstId = homeNote(root, index) ?? "";
   // The note of the address is asked for now, before the frame and the rows of the files are made: it is on
   // its way while they are. It is shown at the end, when everything it is shown with is there.
   const opening = noteOfAddress(window.location.hash, firstId);

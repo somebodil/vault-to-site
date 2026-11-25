@@ -51,7 +51,17 @@ export function buildTree(index: SiteIndex): Folder {
   return root;
 }
 
-/** The first note in the order of the tree: what the site opens with */
+/**
+ * The note the site opens with: a note called `index` at the top of the site,
+ * as a web server opens `index.html`, or else the first note in the order of
+ * the tree. Capital and small letters are the same in the name.
+ */
+export function homeNote(root: Folder, index: SiteIndex): string | null {
+  const home = root.items.find((item) => index.notes[item.id] !== undefined && item.name.toLowerCase() === "index");
+  return home?.id ?? firstNote(root, index);
+}
+
+/** The first note in the order of the tree */
 export function firstNote(folder: Folder, index: SiteIndex): string | null {
   for (const item of folder.items) {
     if (index.notes[item.id] !== undefined) {
