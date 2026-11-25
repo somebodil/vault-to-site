@@ -1,5 +1,5 @@
 import { readNoteAddress, type PropertyEntry, type PropertyValue } from "../site-format.ts";
-import { el } from "./dom.ts";
+import { el, htmlNodes, iconNodes } from "./dom.ts";
 
 /** The name of a note or file, without its folder and without `.md` */
 export function titleOf(path: string): string {
@@ -91,10 +91,8 @@ function noteNodes(xml: string, isLazy: boolean): Node[] {
     // Moved, not copied: the document they were read into is not used again
     return Array.from(document.adoptNode(root).childNodes);
   }
-  const content = el("div");
   // What Obsidian drew for the note. The build has cleaned it of scripts.
-  content.innerHTML = xml;
-  return Array.from(content.childNodes);
+  return htmlNodes(xml);
 }
 
 export async function copyText(text: string): Promise<void> {
@@ -181,8 +179,7 @@ export function propertiesView(props: PropertyEntry[], icons: Record<string, str
   };
 
   const container = el("div", { cls: "metadata-container", attr: { tabindex: "-1", "data-property-count": String(props.length) } });
-  const indicator = el("div", { cls: "collapse-indicator collapse-icon" });
-  indicator.innerHTML = icons["right-triangle"] ?? "";
+  const indicator = el("div", { cls: "collapse-indicator collapse-icon" }, iconNodes(icons["right-triangle"] ?? ""));
   const heading = el("div", { cls: "metadata-properties-heading", attr: { tabindex: "0", role: "button" } }, [indicator, el("div", { cls: "metadata-properties-title", text: "Properties" })]);
   const fold = (): void => {
     indicator.classList.toggle("is-collapsed", container.classList.toggle("is-collapsed"));
@@ -201,8 +198,7 @@ export function propertiesView(props: PropertyEntry[], icons: Record<string, str
         "div",
         { cls: "metadata-properties" },
         props.map(([key, value, kind = "text", to]) => {
-          const icon = el("span", { cls: "metadata-property-icon" });
-          icon.innerHTML = icons[`property-${kind}`] ?? "";
+          const icon = el("span", { cls: "metadata-property-icon" }, iconNodes(icons[`property-${kind}`] ?? ""));
           return el("div", { cls: "metadata-property", attr: { "data-property-key": key } }, [
             el("div", { cls: "metadata-property-key" }, [icon, field("metadata-property-key-input", "text", key)]),
             el("div", { cls: "metadata-property-value", attr: { "data-property-type": kind } }, [valueEl(value, kind, to)]),

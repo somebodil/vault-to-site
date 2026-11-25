@@ -24,7 +24,8 @@ interface Folder {
 }
 
 /** One collator for all names: `localeCompare` with options makes a new one for every pair it compares */
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byName = (a: string, b: string): number => collator.compare(a, b);
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 
 /**

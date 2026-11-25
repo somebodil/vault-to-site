@@ -1,10 +1,13 @@
 /**
  * The shape of what the plugin writes and the script of the site reads.
  *
- * A page opened from a file may not read other files as data, but it may load
- * them as scripts. So everything is a script that hands its content to
- * `window.__site`: `data/index.js` the list of what there is, `data/n/<id>.js`
- * one note, `data/s/<n>.js` a part of the text to search in.
+ * A page opened from a file may not read other files as data. What it may do
+ * there is load a script that the page itself names, and show another file in
+ * a frame. So `data/index.js`, the list of what there is, is a script that
+ * index.html loads and that hands the list to `window.__site`. A note,
+ * `data/n/<id>.html`, and a part of the text to search in, `data/s/<n>.html`,
+ * are each a document of the data (`dataDocument`), loaded in a frame when it
+ * is needed: `loadData` in viewer/dom.ts says how.
  */
 
 /** A value of a property of a note */
@@ -60,6 +63,12 @@ export interface SiteIndex {
   viewClass: string;
   /** The inline style of the body of Obsidian: the size of the text, the accent color */
   bodyStyle: string;
+  /**
+   * The class Obsidian has for the system the site was built on: `mod-macos`,
+   * `mod-windows` or `mod-linux`. Its style sheets set some sizes and colors by
+   * it, as the roundness of buttons.
+   */
+  system: string;
   /** Icons of Obsidian as SVG, by name */
   icons: Record<string, string>;
 }
@@ -77,11 +86,26 @@ export interface NotePage {
 /** A part of the text to search in: the id of a note and its text */
 export type SearchPart = [id: string, text: string][];
 
-/** What the scripts of the data call */
+/** What the script of the list of what there is, `data/index.js`, calls */
 export interface SiteGlobal {
   index(index: SiteIndex): void;
-  note(id: string, page: NotePage): void;
-  search(part: number, entries: SearchPart): void;
+}
+
+/**
+ * A document of the data: a small page that holds `data` as JSON, and hands
+ * it to the page of the site with the script `app/frame.js`. It lies two
+ * folders down from the top of the site, in `data/n` or in `data/s`. A search
+ * engine is asked to leave it out: it is a part of a page, not one to show.
+ */
+export function dataDocument(data: NotePage | SearchPart): string {
+  // Every `<` written as an escape, which JSON reads as the same sign: nothing in it can end the element it is in, as `</script>` would
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<script type="application/json">${json}</script>
+<script src="../../app/frame.js"></script>
+`;
 }
 
 /** A link to a note inside the site, as the address after index.html */

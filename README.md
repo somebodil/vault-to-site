@@ -169,9 +169,13 @@ A site that is built as a folder (**Written as**), or an archive that is unpacke
 
 **A site on GitHub Pages can be read by everyone.** Look over the list before you build for it.
 
+The site loads a note, and the text to search in, through a frame that is not seen. A web server that forbids every page to be shown in a frame, with `X-Frame-Options: DENY` or `Content-Security-Policy: frame-ancestors 'none'`, keeps the notes from loading. GitHub Pages does not do that. On a server of your own, allow frames from the same origin: `SAMEORIGIN`, or `'self'`.
+
 ## The style sheets
 
 The site looks like your Obsidian because a build copies the style sheets that your Obsidian has loaded: those of the app, of your theme, of your snippets, and of your plugins, also the ones a plugin makes with script, with the fonts they use. They are copied on your device at the time of the build. None of them is part of this plugin.
+
+Some sizes and colors of these style sheets go by the system Obsidian runs on, as the roundness of buttons. The site has them as Obsidian had them where the site was built, wherever it is read: Obsidian on an iPhone or an iPad counts as on a Mac.
 
 Those style sheets belong to their authors, and the ones of the app to Obsidian. Other plugins that publish notes do the same, but there is no written permission for it. Keep that in mind before you put a site where everyone can see it.
 
@@ -191,6 +195,7 @@ Those style sheets belong to their authors, and the ones of the app to Obsidian.
 - **The look** was compared with the reading view of Obsidian on the computer, block by block: the size of each block, the styles the browser works out for it, and its picture. First with a note made for it, then with 16 real notes under a font that a plugin loads and without a line of readable length: all 363 blocks are the same. Headings, text, lists, tasks, quotes, callouts, code, tables, formulas, six kinds of diagram, pictures, embedded notes and the properties are the same. What differs is what a reader cannot use: the buttons that remove a value or add a property, and a link that leads out of the site, which is shown as one that leads nowhere.
 - **Renames, stops and refusals** were done in Obsidian on the phone: a folder with left-out notes renamed, a build stopped half way, a vault changed between the list and the build, a file of the user at the place of the archive.
 - **The site** was opened in Chrome, in WebKit (the engine of Safari) and in Firefox, from a file and from a web server under a path, at the width of a computer and of a phone. From 0.1.8 on, it is tried in Chrome and WebKit as a computer, a phone (Pixel 7, iPhone 15) and a tablet (iPad): notes, search and a PDF, with no error of the script. A finger that moves the note aside was tried in Chrome only: WebKit on Linux lets no script make a touch.
+- **A note and the text to search in come through a frame** from 0.1.9 on. A site of 153 notes, with a picture, a PDF, an embed, callouts and a footnote, was opened in Chromium and WebKit on a Mac as a computer, a phone (Pixel 7, iPhone 15) and a tablet, from a file and from a web server under a path: the files, notes, links and the back button, a link to a heading, headings and callouts that fold, the search, the graph, the preview of a link, dark and light. What the page showed was the same as with 0.1.8, element by element, with no error of the script. A site of 3001 notes opened as fast as with 0.1.8, and so did a note in it. The first search, which loads all 31 parts of its text, showed what it found after 0.3 to 0.4 seconds, against 0.15 before. A note whose file is missing says so after a second, and after five in Safari when the site is opened from a file.
 - **A PDF in a frame on a real iPhone** showed in Safari as its first page, cut to the frame. WebKit on Linux, where the site is tried, has no viewer of PDFs, so a phone gets the link alone. After each build of the difficult vault, every file of the site was searched for the names and the text of what was kept out.
 - **In Chrome on the emulated phone** the site was loaded from a web server and read by script: it comes up in the layout for a phone. Touching it there was not tried, because the emulator stopped when a window of Chrome was touched.
 - **A file at a path of its own** was built through the runner in Obsidian 1.15.1 on a Mac: a PDF from a folder that a pattern keeps out, put at the top of a site of 149 real notes, and served from there by a web server.
@@ -213,6 +218,12 @@ npm run build   # type check, then the main.js of a release
 - `src/build` has Obsidian draw the notes and writes the site. The zip archive is written by `zip.ts`, without a library.
 - `src/ui` holds the dialog.
 - `src/viewer` is the script of the site, which runs in the browser. It is built on its own and goes into `main.js` as text.
+
+**How the site gets its notes.** `index.html` loads the list of what there is, `data/index.js`, as a script. A note (`data/n/<id>.html`) and a part of the text to search in (`data/s/<n>.html`) are each a small page that holds its content as JSON. The site loads one in a frame that is not seen when it is needed, and the script `app/frame.js` in that page hands the content over as a message (`loadData` in `src/viewer/dom.ts`). Why so:
+
+- A page opened from a file may not read other files: `fetch` is refused there. Showing another file in a frame is allowed, from a file and on a web server alike.
+- A page that adds scripts to itself while it runs is code that loads code, which the review of community plugins of Obsidian does not take.
+- Only what is read is loaded: a large site opens as fast as a small one, and the browser holds the notes that were read last, not all of them.
 
 To try a build, copy `main.js`, `manifest.json`, and `styles.css` to `.obsidian/plugins/vault-to-site/` in a vault.
 

@@ -1,5 +1,5 @@
-import { fileAddress, readNoteAddress, type NotePage, type SiteGlobal, type SiteIndex } from "../site-format.ts";
-import { el, iconButton, kept, loadScript, setIcon } from "./dom.ts";
+import { fileAddress, readNoteAddress, type NotePage, type SearchPart, type SiteGlobal, type SiteIndex } from "../site-format.ts";
+import { el, iconButton, kept, loadData, setIcon } from "./dom.ts";
 import { haystack, missingParts, type Haystack } from "./find.ts";
 import { addFolding, foldCallout, openCallouts, unfoldFor } from "./fold.ts";
 import { graphView } from "./graph.ts";
@@ -29,32 +29,47 @@ import { buildTree, homeNote, treeView } from "./tree.ts";
  */
 const pages = new Map<string, NotePage>();
 const MOST_PAGES = 60;
-/** The texts to search in, as the scripts of the data hand them over: each part at its number, in whatever order they arrive */
+/** The texts to search in, as they arrive: each part at its number, in whatever order they come */
 const textParts: Haystack[][] = [];
 /** The same texts in the order of the parts. Made again when a part arrives, not at every key. */
 let texts: Haystack[] = [];
+/** How many parts of the text to search in are loaded at a time: each is a frame, a page of its own, while it loads */
+const PARTS_AT_A_TIME = 6;
 
+// The list of what there is comes with the page itself (index.html loads it as a script): the site starts with it
 const site: SiteGlobal = {
   index(loaded) {
     start(loaded);
   },
-  note(id, page) {
-    pages.delete(id);
-    pages.set(id, page);
-    for (const oldest of pages.keys()) {
-      if (pages.size <= MOST_PAGES) {
-        break;
-      }
-      pages.delete(oldest);
-    }
-  },
-  search(part, entries) {
-    textParts[part] = entries.map(([id, text]) => haystack(id, text));
-    // In the order of their numbers, whichever came first: a search finds the same lines first every time
-    texts = textParts.flat();
-  },
 };
 (window as unknown as { __site: SiteGlobal }).__site = site;
+
+function keepPage(id: string, page: NotePage): void {
+  pages.delete(id);
+  pages.set(id, page);
+  for (const oldest of pages.keys()) {
+    if (pages.size <= MOST_PAGES) {
+      break;
+    }
+    pages.delete(oldest);
+  }
+}
+
+function isPage(data: unknown): data is NotePage {
+  const page = data as Partial<NotePage> | null;
+  return typeof page === "object" && page !== null && typeof page.html === "string" && Array.isArray(page.props) && Array.isArray(page.h);
+}
+
+/** Takes a part of the text to search in, as its document of the data holds it */
+function keepSearchPart(part: number, data: unknown): void {
+  if (!Array.isArray(data)) {
+    return;
+  }
+  const entries = (data as unknown[]).filter((entry): entry is SearchPart[number] => Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "string");
+  textParts[part] = entries.map(([id, text]) => haystack(id, text));
+  // In the order of their numbers, whichever came first: a search finds the same lines first every time
+  texts = textParts.flat();
+}
 
 /** The notes that are being loaded, so that one note is asked for once */
 const loading = new Map<string, Promise<void>>();
@@ -63,7 +78,14 @@ async function loadNote(id: string): Promise<NotePage | null> {
   if (!pages.has(id)) {
     let request = loading.get(id);
     if (request === undefined) {
-      request = loadScript(`data/n/${id}.js`).catch(() => undefined);
+      request = loadData(`data/n/${id}.html`).then(
+        (data) => {
+          if (isPage(data)) {
+            keepPage(id, data);
+          }
+        },
+        () => undefined,
+      );
       loading.set(id, request);
     }
     await request;
@@ -84,7 +106,7 @@ function start(index: SiteIndex): void {
   body.setAttribute("style", index.bodyStyle);
   body.classList.add("obsidian-app", "show-view-header", "v2s");
   body.classList.toggle("show-inline-title", index.inlineTitle);
-  body.classList.add(/Mac|iPhone|iPad/.test(navigator.platform) ? "mod-macos" : /Win/.test(navigator.platform) ? "mod-windows" : "mod-linux");
+  body.classList.add(index.system);
 
   // ---- Look: dark or light, as Obsidian was when the site was built, until the reader chooses ----
   let theme = kept.get("theme") ?? index.theme;
@@ -140,8 +162,21 @@ function start(index: SiteIndex): void {
       if (missing.length === 0) {
         return null;
       }
-      // Each part is waited for by itself: one that cannot be loaded does not end the wait for the others
-      const asked = Promise.all(missing.map((part) => loadScript(`data/s/${String(part)}.js`).catch(() => undefined))).then(() => {
+      // A few at a time, in the order of their numbers. Each part is waited for by itself: one that cannot be
+      // loaded does not end the wait for the others.
+      const next = (): Promise<void> => {
+        const part = missing.shift();
+        if (part === undefined) {
+          return Promise.resolve();
+        }
+        return loadData(`data/s/${String(part)}.html`)
+          .then(
+            (data) => keepSearchPart(part, data),
+            () => undefined,
+          )
+          .then(next);
+      };
+      const asked = Promise.all(Array.from({ length: Math.min(PARTS_AT_A_TIME, missing.length) }, next)).then(() => {
         // Over, whether all of them arrived or not: a part that did not is asked for again when the search is opened the next time
         searchLoading = null;
       });
@@ -340,8 +375,8 @@ function start(index: SiteIndex): void {
   // or a variable would have the browser work out the styles of the whole note at every move.
   const letGo = (): void => {
     moving = null;
-    main.style.transform = "";
-    scrim.style.opacity = "";
+    main.style.removeProperty("transform");
+    scrim.style.removeProperty("opacity");
     app.classList.remove("v2s-moving", "v2s-moving-left", "v2s-moving-right");
   };
   const swipe = (): (() => void) =>

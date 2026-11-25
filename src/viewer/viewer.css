@@ -272,10 +272,16 @@ video.v2s-left-out {
   overflow-x: auto;
 }
 
-/* ---- What a folded heading hides ---- */
+/* ---- What a folded heading hides: a block of the note, which nothing else gives a display of its own ---- */
 
-.v2s-folded {
-  display: none !important;
+.v2s .markdown-preview-sizer > .v2s-folded {
+  display: none;
+}
+
+/* ---- A frame that loads a document of the data (loadData in dom.ts) ---- */
+
+.v2s-data-frame {
+  display: none;
 }
 
 /* ---- The note of a link, shown while the pointer rests on the link ---- */

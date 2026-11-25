@@ -15,16 +15,12 @@ export default defineConfig([
   },
   {
     // The script of the site runs in a plain browser, where nothing of Obsidian exists: no popout
-    // windows, no `createEl`, no `Platform`. What it puts on the page with innerHTML is what the
-    // build took from Obsidian: the notes as Obsidian drew them, and its icons.
+    // windows, no `activeDocument`, no `createEl`, no `instanceOf`. These rules ask for them.
     files: ["src/viewer/**"],
     rules: {
       "obsidianmd/prefer-active-doc": "off",
       "obsidianmd/prefer-create-el": "off",
       "obsidianmd/prefer-instanceof": "off",
-      "obsidianmd/platform": "off",
-      "no-unsanitized/property": "off",
-      "@microsoft/sdl/no-inner-html": "off",
     },
   },
   {

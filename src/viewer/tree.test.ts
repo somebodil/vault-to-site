@@ -13,6 +13,7 @@ function index(notes: Record<string, string>, files: Record<string, string> = {}
     inlineTitle: true,
   viewClass: "",
     bodyStyle: "",
+    system: "mod-linux",
     icons: {},
   };
 }

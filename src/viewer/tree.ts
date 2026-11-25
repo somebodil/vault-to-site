@@ -1,5 +1,5 @@
 import type { SiteIndex } from "../site-format.ts";
-import { el } from "./dom.ts";
+import { el, iconNodes } from "./dom.ts";
 
 /** A folder of the tree of the site */
 export interface Folder {
@@ -11,7 +11,8 @@ export interface Folder {
 }
 
 /** One collator for all names: `localeCompare` with options makes a new one for every pair it compares */
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byName = (a: string, b: string): number => collator.compare(a, b);
 
 /** The folders of the site, made from the paths of what it holds. Folders come before files, as in Obsidian. */
 export function buildTree(index: SiteIndex): Folder {
@@ -115,8 +116,7 @@ export function treeView(root: Folder, index: SiteIndex, triangle: string, open:
 
   const fill = (children: HTMLElement, folder: Folder): void => {
     for (const inner of folder.folders) {
-      const icon = el("div", { cls: "tree-item-icon collapse-icon is-collapsed" });
-      icon.innerHTML = triangle;
+      const icon = el("div", { cls: "tree-item-icon collapse-icon is-collapsed" }, iconNodes(triangle));
       const title = el("div", { cls: "tree-item-self nav-folder-title is-clickable mod-collapsible" }, [
         icon,
         el("div", { cls: "tree-item-inner nav-folder-title-content", text: inner.name }),

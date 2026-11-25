@@ -2,6 +2,7 @@ import { type App, getIcon, normalizePath, parseLinktext, Platform, TFile } from
 import { signatureOf } from "../select/choose.ts";
 import { placeOf, type Settings } from "../settings.ts";
 import {
+  dataDocument,
   ICON_NAMES,
   type NoteEntry,
   noteAddress,
@@ -23,6 +24,7 @@ import { severalAtATime } from "./workers.ts";
 
 declare const VIEWER_JS: string;
 declare const VIEWER_CSS: string;
+declare const FRAME_JS: string;
 
 /** Called as the build goes on: how much is done, of how much, and what is being worked on */
 export type Progress = (done: number, total: number, label: string) => void;
@@ -180,7 +182,7 @@ async function build(
     if (--part.left === 0) {
       openParts.delete(number);
       const full: SearchPart = part.texts.filter((text) => text !== null);
-      await output.text(`data/s/${String(number)}.js`, `__site.search(${String(number)},${JSON.stringify(full)});\n`);
+      await output.text(`data/s/${String(number)}.html`, dataDocument(full));
     }
   };
   const entries: ([string, NoteEntry] | undefined)[] = [];
@@ -238,7 +240,7 @@ async function build(
       failed.push({ path, message: error instanceof Error ? error.message : String(error) });
       page.html = '<p class="v2s-empty">This note could not be drawn when the site was built.</p>';
     }
-    await output.text(`data/n/${id}.js`, `__site.note(${JSON.stringify(id)},${JSON.stringify(page)});\n`);
+    await output.text(`data/n/${id}.html`, dataDocument(page));
 
     // The properties are shown above the note, so they are words of the page as well
     const properties = page.props.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
@@ -333,11 +335,14 @@ async function build(
       inlineTitle: doc.body.classList.contains("show-inline-title"),
       viewClass,
       bodyStyle: doc.body.getAttribute("style") ?? "",
+      // As Obsidian has it on a computer. On an iPhone or an iPad Obsidian counts as on a Mac, as Platform says.
+      system: Platform.isMacOS ? "mod-macos" : Platform.isWin ? "mod-windows" : "mod-linux",
       icons,
     };
     await output.text("data/index.js", `__site.index(${JSON.stringify(index)});\n`);
     await output.text("app/viewer.css", VIEWER_CSS);
     await output.text("app/viewer.js", VIEWER_JS);
+    await output.text("app/frame.js", FRAME_JS);
     // The page itself comes last: a folder without it is not taken for a site
     await output.text("index.html", indexHtml(index.name, doc.documentElement.lang));
     check();

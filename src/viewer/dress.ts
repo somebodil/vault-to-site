@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { el, iconNodes } from "./dom.ts";
 
 /**
  * Gives the lists of a note what the reading view of Obsidian gives them
@@ -21,8 +21,7 @@ export function dressLists(root: ParentNode, triangle: string, canFold: boolean)
       item.insertBefore(el("span", { cls: "list-bullet" }), first);
     }
     if (canFold && Array.from(item.children).some((child) => child.localName === "ul" || child.localName === "ol")) {
-      const indicator = el("span", { cls: "list-collapse-indicator collapse-indicator collapse-icon" });
-      indicator.innerHTML = triangle;
+      const indicator = el("span", { cls: "list-collapse-indicator collapse-indicator collapse-icon" }, iconNodes(triangle));
       indicator.addEventListener("click", (event) => {
         event.stopPropagation();
         indicator.classList.toggle("is-collapsed", item.classList.toggle("is-collapsed"));
@@ -59,8 +58,6 @@ export function dressEmbeds(root: ParentNode, corner: string): void {
     if (Array.from(embed.children).some((child) => child.classList.contains("markdown-embed-link"))) {
       continue;
     }
-    const link = el("div", { cls: "markdown-embed-link", attr: { "aria-label": "Open link", role: "button" } });
-    link.innerHTML = corner;
-    embed.appendChild(link);
+    embed.appendChild(el("div", { cls: "markdown-embed-link", attr: { "aria-label": "Open link", role: "button" } }, iconNodes(corner)));
   }
 }

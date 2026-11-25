@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { el, iconNodes } from "./dom.ts";
 
 /** On what a folded heading hides */
 const FOLDED = "v2s-folded";
@@ -120,8 +120,7 @@ export function addFolding(sizer: HTMLElement, triangle: string): void {
     if (heading === null) {
       continue;
     }
-    const indicator = el("span", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } });
-    indicator.innerHTML = triangle;
+    const indicator = el("span", { cls: "heading-collapse-indicator collapse-indicator collapse-icon", attr: { role: "button", "aria-label": "Fold" } }, iconNodes(triangle));
     indicator.addEventListener("click", (event) => {
       event.stopPropagation();
       // As in Obsidian, the block of the heading says that it is folded, and so does the triangle
